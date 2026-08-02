@@ -1,0 +1,19 @@
+# Artefacts de build (ne pas pousser sur GitHub)
+/cache/
+/staging/
+/output/
+/.tools/
+/buildroot/
+/backups/
+*.img
+*.img.7z
+*.7z
+*.tar
+*.tar.gz
+
+# IDE / OS
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~

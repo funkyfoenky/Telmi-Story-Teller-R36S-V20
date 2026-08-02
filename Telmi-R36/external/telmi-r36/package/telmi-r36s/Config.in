@@ -1,0 +1,8 @@
+config BR2_PACKAGE_TELMI_R36S
+	bool "telmi-r36s"
+	depends on BR2_PACKAGE_SDL2
+	depends on BR2_PACKAGE_SDL2_IMAGE
+	depends on BR2_PACKAGE_SDL2_TTF
+	depends on BR2_PACKAGE_SDL2_MIXER
+	help
+	  TelmiOS story teller pour R36S.

@@ -1,0 +1,148 @@
+###########################################################
+
+TARGET=TelmiOS
+VERSION=1.10.0
+
+###########################################################
+
+ifneq ($(VERSION_OVERRIDE),)
+VERSION = $(VERSION_OVERRIDE)
+endif
+ 
+RELEASE_NAME := $(TARGET)_v$(VERSION)
+
+ifdef OS
+	current_dir := $(shell cd)
+	ROOT_DIR := $(subst \,/,$(current_dir))
+	makedir := mkdir
+	createfile := echo.>
+else
+	ROOT_DIR := $(shell pwd)
+	makedir := mkdir -p
+	createfile := touch
+endif
+
+# Directories
+SRC_DIR             := $(ROOT_DIR)/src
+THIRD_PARTY_DIR     := $(ROOT_DIR)/third-party
+BUILD_DIR           := $(ROOT_DIR)/build
+BUILD_TEST_DIR      := $(ROOT_DIR)/build_test
+TEST_SRC_DIR		:= $(ROOT_DIR)/test
+BIN_DIR             := $(ROOT_DIR)/build/.tmp_update/bin
+RELEASE_DIR         := $(ROOT_DIR)/release
+STATIC_BUILD        := $(ROOT_DIR)/static/build
+STATIC_CONFIGS      := $(ROOT_DIR)/static/configs
+CACHE               := $(ROOT_DIR)/cache
+INCLUDE_DIR         := $(ROOT_DIR)/include
+ifeq (,$(GTEST_INCLUDE_DIR))
+GTEST_INCLUDE_DIR = /usr/include/
+endif
+
+TOOLCHAIN := aemiii91/miyoomini-toolchain:latest
+
+include ./src/common/commands.mk
+
+###########################################################
+
+.PHONY: all version core apps external release clean deepclean git-clean with-toolchain patch lib test
+
+all: dist
+
+version: # used by workflow
+	@echo $(VERSION)
+print-version:
+	@echo TelmiOS v$(VERSION)
+
+$(CACHE)/.setup:
+	@$(ECHO) $(PRINT_RECIPE)
+	@mkdir -p $(BUILD_DIR) $(RELEASE_DIR)
+	@rsync -a --exclude='.gitkeep' $(STATIC_BUILD)/ $(BUILD_DIR)
+# Copy shared libraries
+	@cp -R $(ROOT_DIR)/lib/. $(BUILD_DIR)/.tmp_update/lib
+# Set version number
+	@mkdir -p $(BUILD_DIR)/.tmp_update/telmiVersion
+	@echo -n "v$(VERSION)" > $(BUILD_DIR)/.tmp_update/telmiVersion/version.txt
+	@sed -i "s/{VERSION}/$(VERSION)/g" $(BUILD_DIR)/autorun.inf
+# Copy all resources from src folders
+	@find \
+		$(SRC_DIR)/bootScreen \
+		$(SRC_DIR)/storyTeller \
+		$(SRC_DIR)/chargingState \
+		-depth -type d -name res -exec cp -r {}/. $(BUILD_DIR)/.tmp_update/res/ \;
+# Copy static configs
+	@mkdir -p $(BUILD_DIR)/.tmp_update/config
+	@rsync -a --exclude='.gitkeep' $(STATIC_CONFIGS)/ $(BUILD_DIR)
+# Set flag: finished setup
+	@touch $(CACHE)/.setup
+
+build: core apps external
+	@$(ECHO) $(PRINT_DONE)
+
+core: $(CACHE)/.setup
+	@$(ECHO) $(PRINT_RECIPE)
+	@cp -r /root/workspace/lib/libSDL2* /opt/miyoomini-toolchain/usr/arm-linux-gnueabihf/libc/lib
+	@cp /root/workspace/lib/libmpg123.so.0 /opt/miyoomini-toolchain/usr/arm-linux-gnueabihf/libc/lib/libmpg123.so.0
+# Build Telmi binaries
+	@cd $(SRC_DIR)/axp && BUILD_DIR=$(BIN_DIR) make
+	@cd $(SRC_DIR)/bootScreen && BUILD_DIR=$(BIN_DIR) make
+	@cd $(SRC_DIR)/storyTeller && BUILD_DIR=$(BIN_DIR) make
+	@cd $(SRC_DIR)/chargingState && BUILD_DIR=$(BIN_DIR) make
+	@cd $(SRC_DIR)/batmon && BUILD_DIR=$(BIN_DIR) make
+
+dist: build
+	@$(ECHO) $(PRINT_RECIPE)
+	@echo " DONE"
+	@$(ECHO) $(PRINT_DONE)
+
+release: dist
+	@$(ECHO) $(PRINT_RECIPE)
+	@rm -f "$(RELEASE_DIR)/$(RELEASE_NAME).zip" "$(RELEASE_DIR)/$(RELEASE_NAME)-update.zip"
+	@cd "$(BUILD_DIR)" && 7z a -mtc=off "$(RELEASE_DIR)/$(RELEASE_NAME).zip" . -bsp1 -bso0
+	@cd "$(BUILD_DIR)" && 7z a -mtc=off -spf -tzip "$(RELEASE_DIR)/$(RELEASE_NAME)-update.zip" "autorun.inf" ".tmp_update/*" -bsp1 -bso0
+	@$(ECHO) $(PRINT_DONE)
+
+clean:
+	@$(ECHO) $(PRINT_RECIPE)
+	@rm -rf $(BUILD_DIR) $(BUILD_TEST_DIR) $(ROOT_DIR)/dist
+	@rm -f $(CACHE)/.setup
+	@find include src -type f -name *.o -exec rm -f {} \;
+
+deepclean: clean
+	@rm -rf $(CACHE)
+
+dev: clean
+	@$(MAKE_DEV)
+
+git-clean:
+	@git clean -xfd -e .vscode
+
+pwd:
+	@echo $(ROOT_DIR)
+
+$(CACHE)/.docker:
+	docker pull $(TOOLCHAIN)
+	$(makedir) cache
+	$(createfile) $(CACHE)/.docker
+
+toolchain: $(CACHE)/.docker
+	docker run -it --rm -v "$(ROOT_DIR)":/root/workspace $(TOOLCHAIN) /bin/bash
+
+with-toolchain: $(CACHE)/.docker
+	docker run --rm -v "$(ROOT_DIR)":/root/workspace $(TOOLCHAIN) /bin/bash -c "source /root/.bashrc; make $(CMD)"
+
+patch:
+	@chmod a+x $(ROOT_DIR)/.github/create_patch.sh && $(ROOT_DIR)/.github/create_patch.sh
+
+lib:
+	@cd $(ROOT_DIR)/include/SDL && make clean && make
+
+test:
+	@mkdir -p $(BUILD_TEST_DIR)/infoPanel_test_data && cd $(TEST_SRC_DIR) && BUILD_DIR=$(BUILD_TEST_DIR)/ make dev
+	@cp -R $(TEST_SRC_DIR)/infoPanel_test_data $(BUILD_TEST_DIR)/
+	cd $(BUILD_TEST_DIR) && ./test
+
+static-analysis:
+	@cd $(ROOT_DIR) && cppcheck -I $(INCLUDE_DIR) --enable=all $(SRC_DIR)
+
+format:
+	@find ./src -regex '.*\.\(c\|h\|cpp\|hpp\)' -exec clang-format -style=file -i {} \;

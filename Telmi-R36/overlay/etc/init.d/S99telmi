@@ -1,0 +1,37 @@
+#!/bin/sh
+
+LOG_BOOT=/boot/telmi-runtime.log
+LOG_TELMI=/telmi/logs/runtime.log
+
+case "$1" in
+	start)
+		mkdir -p /boot
+		mountpoint -q /boot || mount /boot 2>/dev/null || true
+		echo "$(date '+%Y-%m-%d %H:%M:%S') S99telmi start" >>"$LOG_BOOT"
+		if [ -f /opt/telmi/telmiVersion/image-version.txt ]; then
+			echo "$(date '+%Y-%m-%d %H:%M:%S') image $(cat /opt/telmi/telmiVersion/image-version.txt) build $(cat /opt/telmi/telmiVersion/build-id.txt 2>/dev/null)" >>"$LOG_BOOT"
+		fi
+		# Splash le plus tot possible (S06 a deja tente le mount TELMI)
+		if [ -x /opt/telmi/bin/bootScreen ]; then
+			/opt/telmi/bin/bootScreen Boot >>"$LOG_BOOT" 2>&1 || true
+		fi
+		if mountpoint -q /telmi; then
+			mkdir -p /telmi/logs
+			echo "$(date '+%Y-%m-%d %H:%M:%S') /telmi monte OK" >>"$LOG_BOOT"
+		else
+			echo "$(date '+%Y-%m-%d %H:%M:%S') ERREUR: /telmi non monte" >>"$LOG_BOOT"
+		fi
+		echo "$(date '+%Y-%m-%d %H:%M:%S') lancement runtime" >>"$LOG_BOOT"
+		[ -d /telmi/logs ] && echo "$(date '+%Y-%m-%d %H:%M:%S') lancement runtime" >>"$LOG_TELMI"
+		/opt/telmi/bin/telmi-runtime.sh >>"$LOG_BOOT" 2>&1 &
+		;;
+	stop)
+		touch /tmp/.offOrder
+		;;
+	*)
+		echo "Usage: $0 {start|stop}"
+		exit 1
+		;;
+esac
+
+exit 0

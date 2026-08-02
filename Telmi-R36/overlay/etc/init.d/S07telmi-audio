@@ -1,0 +1,42 @@
+#!/bin/sh
+# Initialise le volume ALSA (codec RK3326 / R36S)
+
+unmute_audio() {
+	_i=0
+	while [ "$_i" -lt 8 ]; do
+		[ -d /dev/snd ] && [ -e /dev/snd/controlC0 ] && break
+		sleep 1
+		_i=$((_i + 1))
+	done
+
+	command -v amixer >/dev/null 2>&1 || return 0
+
+	# Chemin critique sur rk817 / clones R36S : sans SPK = silence haut-parleur
+	amixer -c 0 cset name='Playback Path' SPK 2>/dev/null || true
+	amixer -c 0 cset name='Playback Path' 'SPK' 2>/dev/null || true
+	amixer -c 0 cset name='Playback Mux' SPK 2>/dev/null || true
+	amixer -c 0 cset name='Playback Mux' 'SPK' 2>/dev/null || true
+
+	for ctrl in Master Playback DAC Speaker Headphone Digital PCM 'DAC HIFI' 'Speaker Mixer'; do
+		amixer -c 0 -q sset "$ctrl" 100% unmute 2>/dev/null || true
+		amixer -q sset "$ctrl" 100% unmute 2>/dev/null || true
+	done
+
+	# Dump utile pour diagnostic (partition BOOT si montee)
+	if [ -d /boot ] && mountpoint -q /boot 2>/dev/null; then
+		{
+			echo "=== amixer scontrols ==="
+			amixer -c 0 scontrols 2>/dev/null || true
+			echo "=== Playback Path ==="
+			amixer -c 0 cget name='Playback Path' 2>/dev/null || true
+		} > /boot/telmi-amixer.txt 2>/dev/null || true
+	fi
+}
+
+case "$1" in
+	start) unmute_audio ;;
+	stop) ;;
+	*) exit 1 ;;
+esac
+
+exit 0

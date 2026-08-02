@@ -1,0 +1,17 @@
+#!/bin/sh
+# Monte /boot (partition FAT visible sous Windows) pour logs de debug.
+
+case "$1" in
+	start)
+		mkdir -p /boot
+		if ! mountpoint -q /boot; then
+			mount /boot 2>/dev/null || \
+				mount -t vfat /dev/mmcblk1p1 /boot 2>/dev/null || \
+				mount -t vfat /dev/mmcblk0p1 /boot 2>/dev/null || true
+		fi
+		;;
+	stop) ;;
+	*) exit 1 ;;
+esac
+
+exit 0

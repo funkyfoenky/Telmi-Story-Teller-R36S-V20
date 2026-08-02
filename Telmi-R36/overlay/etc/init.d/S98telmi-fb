@@ -1,0 +1,12 @@
+#!/bin/sh
+# Deblocage ecran avant Telmi
+
+case "$1" in
+	start)
+		[ -c /dev/fb0 ] && echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null
+		;;
+	stop) ;;
+	*) exit 1 ;;
+esac
+
+exit 0

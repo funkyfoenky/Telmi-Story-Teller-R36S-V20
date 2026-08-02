@@ -1,0 +1,6 @@
+# Artefacts éventuels à la racine du monorepo
+*.img
+*.7z
+*.tar
+.DS_Store
+.idea/
