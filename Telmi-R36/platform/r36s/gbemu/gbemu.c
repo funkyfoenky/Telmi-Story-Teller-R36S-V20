@@ -251,12 +251,11 @@ static void apply_btn(struct gb_s *gb, unsigned code, int pressed)
 {
 	uint8_t mask = 0;
 
-	/* R36S : face buttons Nintendo-like — A physique = East, B = South.
-	 * Sur GB on attend A à droite / B à gauche : inverser vs labels HW. */
+	/* R36S Nintendo-like : A = East (droite), B = South (bas). */
 	if (code == HW_BTN_A)
-		mask = JOYPAD_B;
-	else if (code == HW_BTN_B)
 		mask = JOYPAD_A;
+	else if (code == HW_BTN_B)
+		mask = JOYPAD_B;
 	else if (HW_BTN_IS_SELECT(code))
 		mask = JOYPAD_SELECT;
 	else if (HW_BTN_IS_START(code))

@@ -87,6 +87,57 @@ static double sample_rate = 44100.0;
 static float display_aspect = 0.f;
 static unsigned last_dst_w, last_dst_h;
 
+/* Options core (PCSX ReARMed frameskip, etc.) */
+static bool core_vars_updated = true;
+static retro_audio_buffer_status_callback_t audio_buff_status_cb;
+
+static const struct {
+	const char *key;
+	const char *value;
+} telmi_core_opts[] = {
+	/* Frameskip auto basé sur buffer audio (nécessite SET_AUDIO_BUFFER_STATUS) */
+	{ "pcsx_rearmed_frameskip_type", "auto" },
+	{ "pcsx_rearmed_frameskip_threshold", "33" },
+	{ "pcsx_rearmed_frameskip_interval", "1" },
+	{ NULL, NULL }
+};
+
+static const char *telmi_opt_get(const char *key)
+{
+	unsigned i;
+
+	if (!key)
+		return NULL;
+	for (i = 0; telmi_core_opts[i].key; i++) {
+		if (strcmp(telmi_core_opts[i].key, key) == 0)
+			return telmi_core_opts[i].value;
+	}
+	return NULL;
+}
+
+static void notify_audio_buffer_status(void)
+{
+	Uint32 queued, ideal, one_frame;
+	unsigned occ;
+	bool underrun;
+
+	if (!audio_buff_status_cb || !audio_dev)
+		return;
+	queued = SDL_GetQueuedAudioSize(audio_dev);
+	/* Occupancy vs ~50 ms cible */
+	ideal = (Uint32)(sample_rate * 4.0 * 0.05);
+	if (ideal < 2048)
+		ideal = 2048;
+	occ = (unsigned)((queued * 100u) / ideal);
+	if (occ > 100)
+		occ = 100;
+	one_frame = (Uint32)(sample_rate * 4.0 / target_fps);
+	if (one_frame < 256)
+		one_frame = 256;
+	underrun = queued < one_frame * 2;
+	audio_buff_status_cb(true, occ, underrun);
+}
+
 /* Volume UI 0..25 (echelle Telmi) — ALSA Playback, comme gbemu */
 static int emu_volume = 15;
 static int emu_mixer_fd = -1;
@@ -335,13 +386,21 @@ static uint32_t pix_to_rgb32(const void *data, unsigned x, unsigned y, unsigned 
 
 static void blit_frame(const void *data, unsigned width, unsigned height, size_t pitch)
 {
-	unsigned sw, sh, x0, y0, x, y;
+	unsigned sw, sh, x0, y0, x, y, scale;
 	float aspect;
+	int exact_scale;
+	const uint8_t *src = data;
 
 	if (!data || !fb.mem || width == 0 || height == 0)
 		return;
 
-	/* Prefer core aspect (PSX 4:3) over raw pixel ratio (ex. 512x240) */
+	/*
+	 * PSX est 4:3 : sur 640x480 on remplit l'écran via display_aspect.
+	 * Attention : le framebuffer core n'est pas toujours 320x240
+	 * (souvent 512x240, etc.) — le ratio pixels != 4:3.
+	 * Scale entier rapide seulement s'il tombe pile sur ce rectangle 4:3
+	 * (ex. 320x240 → 640x480 = 2x exact).
+	 */
 	aspect = display_aspect;
 	if (aspect <= 0.01f)
 		aspect = (float)width / (float)height;
@@ -364,13 +423,98 @@ static void blit_frame(const void *data, unsigned width, unsigned height, size_t
 	x0 = (FB_W - sw) / 2;
 	y0 = (FB_H - sh) / 2;
 
-	/* Efface les bandes si la zone cible change */
+	exact_scale = 0;
+	scale = 1;
+	if (sw % width == 0 && sh % height == 0 && (sw / width) == (sh / height)) {
+		scale = sw / width;
+		exact_scale = (scale >= 1 && scale <= 4);
+	}
+
 	if (sw != last_dst_w || sh != last_dst_h) {
 		memset(fb.mem, 0, fb.mem_len);
 		last_dst_w = sw;
 		last_dst_h = sh;
 	}
 
+	/* Fast path : scale entier exact (typ. 320x240 → 640x480) */
+	if (exact_scale && pixel_fmt == RETRO_PIXEL_FORMAT_RGB565 && fb.bpp == 16 && scale == 1) {
+		for (y = 0; y < height; y++) {
+			const uint16_t *srow = (const uint16_t *)(src + y * pitch);
+			uint16_t *drow = (uint16_t *)(fb.mem + (y0 + y) * fb.finfo.line_length + x0 * 2);
+			memcpy(drow, srow, width * 2);
+		}
+		return;
+	}
+	if (exact_scale && pixel_fmt == RETRO_PIXEL_FORMAT_RGB565 && fb.bpp == 16 && scale == 2) {
+		for (y = 0; y < height; y++) {
+			const uint16_t *srow = (const uint16_t *)(src + y * pitch);
+			uint16_t *d0 = (uint16_t *)(fb.mem + (y0 + y * 2) * fb.finfo.line_length + x0 * 2);
+			uint16_t *d1 = (uint16_t *)(fb.mem + (y0 + y * 2 + 1) * fb.finfo.line_length + x0 * 2);
+			for (x = 0; x < width; x++) {
+				uint16_t c = srow[x];
+				d0[x * 2] = c;
+				d0[x * 2 + 1] = c;
+				d1[x * 2] = c;
+				d1[x * 2 + 1] = c;
+			}
+		}
+		return;
+	}
+	if (exact_scale && pixel_fmt == RETRO_PIXEL_FORMAT_RGB565 && fb.bpp == 32 &&
+	    (scale == 1 || scale == 2)) {
+		for (y = 0; y < height; y++) {
+			const uint16_t *srow = (const uint16_t *)(src + y * pitch);
+			uint32_t *d0 = (uint32_t *)(fb.mem + (y0 + y * scale) * fb.finfo.line_length + x0 * 4);
+			uint32_t *d1 = (scale == 2)
+				? (uint32_t *)(fb.mem + (y0 + y * 2 + 1) * fb.finfo.line_length + x0 * 4)
+				: NULL;
+			for (x = 0; x < width; x++) {
+				uint16_t p = srow[x];
+				unsigned r = (p >> 11) & 0x1F;
+				unsigned g = (p >> 5) & 0x3F;
+				unsigned b = p & 0x1F;
+				uint32_t c = 0xFF000000u |
+					((r << 3) | (r >> 2)) << 16 |
+					((g << 2) | (g >> 4)) << 8 |
+					((b << 3) | (b >> 2));
+				if (scale == 1) {
+					d0[x] = c;
+				} else {
+					d0[x * 2] = c;
+					d0[x * 2 + 1] = c;
+					d1[x * 2] = c;
+					d1[x * 2 + 1] = c;
+				}
+			}
+		}
+		return;
+	}
+	if (exact_scale && pixel_fmt == RETRO_PIXEL_FORMAT_XRGB8888 && fb.bpp == 32 && scale == 1) {
+		for (y = 0; y < height; y++) {
+			const uint32_t *srow = (const uint32_t *)(src + y * pitch);
+			uint32_t *drow = (uint32_t *)(fb.mem + (y0 + y) * fb.finfo.line_length + x0 * 4);
+			for (x = 0; x < width; x++)
+				drow[x] = srow[x] | 0xFF000000u;
+		}
+		return;
+	}
+	if (exact_scale && pixel_fmt == RETRO_PIXEL_FORMAT_XRGB8888 && fb.bpp == 32 && scale == 2) {
+		for (y = 0; y < height; y++) {
+			const uint32_t *srow = (const uint32_t *)(src + y * pitch);
+			uint32_t *d0 = (uint32_t *)(fb.mem + (y0 + y * 2) * fb.finfo.line_length + x0 * 4);
+			uint32_t *d1 = (uint32_t *)(fb.mem + (y0 + y * 2 + 1) * fb.finfo.line_length + x0 * 4);
+			for (x = 0; x < width; x++) {
+				uint32_t c = srow[x] | 0xFF000000u;
+				d0[x * 2] = c;
+				d0[x * 2 + 1] = c;
+				d1[x * 2] = c;
+				d1[x * 2 + 1] = c;
+			}
+		}
+		return;
+	}
+
+	/* Stretch nearest vers le rectangle 4:3 (plein écran sur 640x480) */
 	for (y = 0; y < sh; y++) {
 		unsigned syi = (y * height) / sh;
 		for (x = 0; x < sw; x++) {
@@ -478,10 +622,45 @@ static bool env_cb(unsigned cmd, void *data)
 				sample_rate = av->timing.sample_rate;
 		}
 		return true;
-	case RETRO_ENVIRONMENT_SET_VARIABLES:
-	case RETRO_ENVIRONMENT_GET_VARIABLE:
+	case RETRO_ENVIRONMENT_GET_VARIABLE: {
+		struct retro_variable *var = data;
+		const char *val;
+
+		if (!var || !var->key)
+			return false;
+		val = telmi_opt_get(var->key);
+		if (!val) {
+			var->value = NULL;
+			return false;
+		}
+		var->value = val;
+		return true;
+	}
 	case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
-		return false;
+		if (data) {
+			*(bool *)data = core_vars_updated;
+			core_vars_updated = false;
+		}
+		return true;
+	case RETRO_ENVIRONMENT_SET_VARIABLES:
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS:
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL:
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2:
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL:
+		return true;
+	case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+		*(unsigned *)data = 2;
+		return true;
+	case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY:
+		return true;
+	case RETRO_ENVIRONMENT_SET_AUDIO_BUFFER_STATUS_CALLBACK: {
+		const struct retro_audio_buffer_status_callback *cb = data;
+
+		audio_buff_status_cb = (cb && cb->callback) ? cb->callback : NULL;
+		return true;
+	}
+	case RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY:
+		return true;
 	case RETRO_ENVIRONMENT_GET_LOG_INTERFACE:
 		return false;
 	case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
@@ -826,6 +1005,8 @@ int main(int argc, char **argv)
 
 	while (running) {
 		struct timespec now;
+
+		notify_audio_buffer_status();
 		core.retro_run();
 
 		next.tv_nsec += frame_ns;
@@ -849,9 +1030,10 @@ int main(int argc, char **argv)
 			next = now;
 		}
 
-		/* Evite saturation audio */
+		/* Limite douce (~150 ms) pour éviter saturation audio sans bloquer trop */
 		if (audio_dev) {
-			while (SDL_GetQueuedAudioSize(audio_dev) > (Uint32)(sample_rate * 4 / 4))
+			Uint32 limit = (Uint32)(sample_rate * 4.0 * 0.15);
+			while (SDL_GetQueuedAudioSize(audio_dev) > limit)
 				SDL_Delay(1);
 		}
 	}

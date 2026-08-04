@@ -2,14 +2,14 @@
 
 Firmware **TelmiOS** dédié à la console **R36S** (layout GPT : BOOT + rootfs ext4 + TELMI FAT32).
 
+Version actuelle : **0.4.39** (voir `Telmi-R36/VERSION`).
+
 Ce dossier contient :
 
 | Chemin | Rôle |
 |--------|------|
 | `Telmi-R36/` | Portage, overlay, scripts build/flash, assets UI |
 | `Telmi-story-teller-1.10.1/` | Sources Miyoo d’origine (headers / utils communs au build) |
-
-Version image actuelle : voir `Telmi-R36/VERSION`.
 
 ## Prérequis
 
