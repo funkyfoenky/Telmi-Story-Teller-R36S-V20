@@ -1,0 +1,20 @@
+{
+  "default": "v20",
+  "active_dtb": "rf3536k3ka.dtb",
+  "revs": [
+    {
+      "id": "v20",
+      "label": "R36S V20 (clone)",
+      "dtb": "dtb/v20.dtb",
+      "audio_path": "SPK",
+      "ignore_zed_keyboard": false
+    },
+    {
+      "id": "v30-panel4",
+      "label": "R36S V30 Panel 4",
+      "dtb": "dtb/v30-panel4.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": true
+    }
+  ]
+}

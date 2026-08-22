@@ -15,6 +15,7 @@
 #include "SDL2/SDL_gfx.h"
 
 #include "system/display.h"
+#include "system/telmi_rev.h"
 #include "utils/str.h"
 
 #include "./logs_helper.h"
@@ -526,17 +527,36 @@ void video_audio_init(void) {
     }
 
     /* Buffer plus grand : hw rk817 + swrast = underruns frequents a 4096 */
-    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 8192) != 0) {
-        fprintf(stderr, "Mix_OpenAudio: %s\n", Mix_GetError());
+    {
+        int tries;
+        for (tries = 0; tries < 10; tries++) {
+            if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 8192) == 0)
+                break;
+            fprintf(stderr, "Mix_OpenAudio try %d: %s\n", tries + 1, Mix_GetError());
+            fflush(stderr);
+            SDL_Delay(500);
+        }
+        if (tries >= 10)
+            fprintf(stderr, "Mix_OpenAudio: ECHEC definitif\n");
+        else
+            fprintf(stderr, "Mix_OpenAudio OK (try %d)\n", tries + 1);
         fflush(stderr);
     }
     Mix_AllocateChannels(16);
     Mix_Volume(-1, MIX_MAX_VOLUME);
     Mix_VolumeMusic(MIX_MAX_VOLUME);
-    /* Force chemin HP R36S au demarrage SDL */
-    system("amixer -c 0 cset name='Playback Path' SPK 2>/dev/null || true");
+    /* Playback Path selon /boot/TELMI-REV.txt (image unique multi-REV). */
+    {
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd),
+                 "amixer -c 0 cset name='Playback Path' %s 2>/dev/null || true",
+                 telmi_audio_path());
+        system(cmd);
+    }
     system("amixer -c 0 sset Playback 100% unmute 2>/dev/null || true");
     system("amixer -c 0 sset DAC 100% unmute 2>/dev/null || true");
+    system("amixer -c 0 sset Headphone unmute 2>/dev/null || true");
+    system("amixer -c 0 sset Speaker unmute 2>/dev/null || true");
 
     fprintf(stderr, "[storyTeller] video_audio_init...\n");
     fflush(stderr);

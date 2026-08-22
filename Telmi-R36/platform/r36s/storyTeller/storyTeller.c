@@ -11,6 +11,7 @@
 
 #include "system/system.h"
 #include "system/keymap_hw.h"
+#include "system/telmi_rev.h"
 #include "system/settings.h"
 #include "system/settings_sync.h"
 #include "system/display.h"
@@ -41,6 +42,9 @@ static int hat_x;
 static int hat_y;
 static int synth_code = -1;
 static int synth_value;
+/* VOL deja enfonce au open (ex. zed_keyboard fantome) : ignorer jusqu au release */
+static bool ignore_vol_down;
+static bool ignore_vol_up;
 
 static bool r36s_has_bit(unsigned long code, const unsigned long *bits, size_t bytes)
 {
@@ -118,6 +122,18 @@ static void r36s_open_inputs(void)
 		ioctl(fd, EVIOCGBIT(EV_ABS, sizeof(absbit)), absbit);
 		ioctl(fd, EVIOCGNAME(sizeof(name)), name);
 
+		/*
+		 * V30 : play_joystick + DTB clone expose zed_keyboard avec VOL- colle.
+		 * V20 : zed_keyboard est le vrai volume. Decide via /boot/TELMI-REV.txt.
+		 */
+		if (telmi_ignore_zed_keyboard() && strcmp(name, "zed_keyboard") == 0) {
+			fprintf(stderr, "[telmi] ignore %s (%s) — phantom volume (rev=%s)\n",
+				evpath, name, telmi_rev_id());
+			fflush(stderr);
+			close(fd);
+			continue;
+		}
+
 		if (r36s_has_bit(BTN_EAST, keybit, sizeof(keybit)) ||
 		    r36s_has_bit(BTN_SOUTH, keybit, sizeof(keybit)))
 			pad_score += 2;
@@ -151,6 +167,26 @@ static void r36s_open_inputs(void)
 
 	if (input_count == 0)
 		fprintf(stderr, "[telmi] aucun peripherique input\n");
+
+	/* VOL deja colle au demarrage (REPEAT sans PRESSED) */
+	ignore_vol_down = false;
+	ignore_vol_up = false;
+	for (int i = 0; i < input_count; i++) {
+		unsigned char key_state[(KEY_MAX + 7) / 8];
+		memset(key_state, 0, sizeof(key_state));
+		if (ioctl(input_fds[i], EVIOCGKEY(sizeof(key_state)), key_state) < 0)
+			continue;
+		if (key_state[KEY_VOLUMEDOWN / 8] & (1u << (KEY_VOLUMEDOWN % 8))) {
+			ignore_vol_down = true;
+			fprintf(stderr, "[telmi] VOL- colle au demarrage (input[%d]) — ignore\n", i);
+			fflush(stderr);
+		}
+		if (key_state[KEY_VOLUMEUP / 8] & (1u << (KEY_VOLUMEUP % 8))) {
+			ignore_vol_up = true;
+			fprintf(stderr, "[telmi] VOL+ colle au demarrage (input[%d]) — ignore\n", i);
+			fflush(stderr);
+		}
+	}
 }
 
 static void r36s_emit_key(int code, int value)
@@ -308,12 +344,16 @@ int main(int argc, char *argv[]) {
 							}
 							break;
 						case HW_BTN_VOLUME_DOWN :
+							if (ignore_vol_down)
+								break;
 							if (!applock_isLocked() && !isMenuPressed) {
 								forceRefreshScreen = app_volume_down();
 								autosleep_keepAwake();
 							}
 							break;
 						case HW_BTN_VOLUME_UP :
+							if (ignore_vol_up)
+								break;
 							if (!applock_isLocked() && !isMenuPressed) {
 								forceRefreshScreen = app_volume_up();
 								autosleep_keepAwake();
@@ -323,6 +363,10 @@ int main(int argc, char *argv[]) {
 					break;
 
 				case RELEASED:
+					if (ev.code == HW_BTN_VOLUME_DOWN)
+						ignore_vol_down = false;
+					else if (ev.code == HW_BTN_VOLUME_UP)
+						ignore_vol_up = false;
 					if (applock_isLocked()) {
 						if (HW_BTN_IS_MENU(ev.code)) {
 							forceRefreshScreen = applock_stopTimer() || forceRefreshScreen;
@@ -406,9 +450,9 @@ int main(int argc, char *argv[]) {
 					if (applock_isLocked() || isMenuPressed)
 						break;
 					autosleep_keepAwake();
-					if (ev.code == HW_BTN_VOLUME_DOWN)
+					if (ev.code == HW_BTN_VOLUME_DOWN && !ignore_vol_down)
 						forceRefreshScreen = app_volume_down();
-					else if (ev.code == HW_BTN_VOLUME_UP)
+					else if (ev.code == HW_BTN_VOLUME_UP && !ignore_vol_up)
 						forceRefreshScreen = app_volume_up();
 					break;
 

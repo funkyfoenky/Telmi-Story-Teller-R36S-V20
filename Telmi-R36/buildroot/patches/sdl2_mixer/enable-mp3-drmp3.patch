@@ -1,0 +1,12 @@
+--- a/package/sdl2_mixer/sdl2_mixer.mk
++++ b/package/sdl2_mixer/sdl2_mixer.mk
+@@ -12,7 +12,8 @@ SDL2_MIXER_LICENSE_FILES = LICENSE.txt
+ SDL2_MIXER_INSTALL_STAGING = YES
+ SDL2_MIXER_DEPENDENCIES = sdl2 host-pkgconf
+ 
+-SDL2_MIXER_CONF_OPTS = --disable-music-mp3
++# TelmiOS : narration et musiques en MP3 (decodeur integre minimp3/drmp3)
++SDL2_MIXER_CONF_OPTS = --enable-music-mp3-drmp3
+ 
+ ifeq ($(BR2_PACKAGE_FLAC),y)
+ SDL2_MIXER_CONF_OPTS += --enable-music-flac

@@ -19,6 +19,8 @@ param(
     [string]$DriveLetter = "",
     [ValidateSet("from-image", "expand", "full")]
     [string]$Mode = "from-image",
+    [ValidateSet("v20", "v30")]
+    [string]$Profile = "v20",
     [switch]$Yes,
     [string]$ProgressFile = ""
 )
@@ -32,16 +34,26 @@ $FlashSh = Join-Path $ScriptDir "flash-telmi-sd.sh"
 $FindSh = Join-Path $ScriptDir "telmi-find-sd-device.sh"
 $RootfsTar = Join-Path $TelmiR36 "output\rootfs.tar"
 $OutputDir = Join-Path $TelmiR36 "output"
-$LatestFile = Join-Path $OutputDir "LATEST.txt"
-$VersionFile = Join-Path $TelmiR36 "VERSION"
+if ($Profile -eq "v30") {
+    $LatestFile = Join-Path $OutputDir "LATEST-V30.txt"
+    $VersionFile = Join-Path $TelmiR36 "profiles\v30\VERSION"
+    $ImgPrefix = "telmi-r36-v30-"
+} else {
+    # Image unique multi-REV (telmi-r36-<VERSION>.img) ou legacy v20
+    $LatestFile = Join-Path $OutputDir "LATEST.txt"
+    $VersionFile = Join-Path $TelmiR36 "VERSION"
+    if (-not (Test-Path $VersionFile)) {
+        $VersionFile = Join-Path $TelmiR36 "profiles\v20\VERSION"
+    }
+    $ImgPrefix = "telmi-r36-"
+}
 $Version = "?"
 if (Test-Path $VersionFile) {
     $Version = (Get-Content $VersionFile -Raw).Trim()
 }
 
 function Get-LatestTelmiImage {
-    $byVersion = Join-Path $OutputDir ("telmi-r36-v20-{0}.img" -f $Version)
-    if (Test-Path $byVersion) { return $byVersion }
+    # Preferer LATEST* (image terminee) avant le fichier VERSION (peut etre en cours d'assemble)
     if (Test-Path $LatestFile) {
         $name = (Get-Content $LatestFile -Raw).Trim()
         if ($name) {
@@ -49,7 +61,19 @@ function Get-LatestTelmiImage {
             if (Test-Path $p) { return $p }
         }
     }
-    $imgs = @(Get-ChildItem -Path $OutputDir -Filter "telmi-r36-v20-*.img" -ErrorAction SilentlyContinue |
+    $byVersion = Join-Path $OutputDir ("{0}{1}.img" -f $ImgPrefix, $Version)
+    if (Test-Path $byVersion) { return $byVersion }
+    # Legacy V20 prefix si image unique absente
+    if ($Profile -ne "v30") {
+        $legacy = Join-Path $OutputDir ("telmi-r36-v20-{0}.img" -f $Version)
+        if (Test-Path $legacy) { return $legacy }
+    }
+    $imgs = @(Get-ChildItem -Path $OutputDir -Filter ("{0}*.img" -f $ImgPrefix) -ErrorAction SilentlyContinue |
+        Where-Object {
+            if ($Profile -eq "v30") { return $true }
+            # Exclure les anciennes images v30-* du flash unique
+            $_.Name -notmatch 'telmi-r36-v30-'
+        } |
         Sort-Object LastWriteTime -Descending)
     if ($imgs.Count -gt 0) { return $imgs[0].FullName }
     return $null
@@ -299,6 +323,7 @@ function Disconnect-DiskFromWsl {
 
 Write-Title ("TelmiOS R36S - Flash SD  (v{0})" -f $Version)
 Write-Host (" Dossier : {0}" -f $TelmiR36)
+Write-Host (" Profil  : {0}" -f $Profile)
 Write-Host (" Image   : {0}" -f $LatestImgName)
 Write-Host ""
 

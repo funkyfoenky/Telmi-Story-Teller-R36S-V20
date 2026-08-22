@@ -23,6 +23,7 @@
 #include <SDL2/SDL.h>
 
 #include "../system/keymap_hw.h"
+#include "../system/telmi_rev.h"
 
 #define ENABLE_SOUND 1
 #define ENABLE_LCD 1
@@ -523,7 +524,11 @@ static int gb_load_state(struct gb_s *gb, struct priv_t *priv, const char *rom_p
 
 static void setup_alsa_spk(void)
 {
-	system("amixer -c 0 cset name='Playback Path' SPK 2>/dev/null || true");
+	char cmd[128];
+	snprintf(cmd, sizeof(cmd),
+		 "amixer -c 0 cset name='Playback Path' %s 2>/dev/null || true",
+		 telmi_audio_path());
+	system(cmd);
 	system("amixer -c 0 sset Playback unmute 2>/dev/null || true");
 	system("amixer -c 0 sset DAC unmute 2>/dev/null || true");
 }

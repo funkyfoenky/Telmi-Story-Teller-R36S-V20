@@ -14,6 +14,7 @@
 
 #include <SDL2/SDL_mixer.h>
 
+#include "system/telmi_rev.h"
 #include "utils/file.h"
 
 #define MAX_VOLUME 20
@@ -25,9 +26,14 @@ static int r36s_playback_numid = -1;
 
 static void r36s_ensure_spk_path(void)
 {
+	char cmd[128];
+
 	if (r36s_spk_ready)
 		return;
-	system("amixer -c 0 -q cset name='Playback Path' SPK 2>/dev/null || true");
+	snprintf(cmd, sizeof(cmd),
+		 "amixer -c 0 -q cset name='Playback Path' %s 2>/dev/null || true",
+		 telmi_audio_path());
+	system(cmd);
 	r36s_spk_ready = 1;
 }
 

@@ -273,7 +273,7 @@ static int show_splash(int is_end)
 		free(rgb);
 	} else if (is_end) {
 		fill_solid(fbp, &finfo, &vinfo, 1);
-		step("fb black OK");
+		step("fb black OK (no png)");
 	} else {
 		fill_solid(fbp, &finfo, &vinfo, 0);
 		step("fb solid OK (no png)");
@@ -292,6 +292,10 @@ int main(int argc, char *argv[])
 	step("bootScreen fb start");
 	unblank();
 	show_splash(is_end);
+
+	/* Laisse le splash visible un instant avant le runtime / extinction */
+	step("bootScreen sleep");
+	sleep(1);
 
 	if (argc > 1 && strcmp(argv[1], "Boot") != 0)
 		temp_flag_set(".offOrder", false);

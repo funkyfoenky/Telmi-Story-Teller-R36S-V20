@@ -1,5 +1,14 @@
 # TelmiOS R36S — changelog images
 
+## 0.5.0 — 2026-08-22
+- **Image unique multi-REV** : `telmi-r36-0.5.0.img` + `Select-Telmi-REV.bat`
+- Un seul binaire : quirks V20/V30 via `/boot/TELMI-REV.txt` (audio Path, zed_keyboard)
+- BOOT : `dtb/v20.dtb`, `dtb/v30-panel4.dtb`, `revs.json`
+- Audio V30 Panel4 : Path=HP (valide par audio-probe)
+- bootScreen PNG (logo Boot / Screen_Off)
+- Flash SD **Windows natif** (`flash-telmi-sd-win.ps1`) : clean disque + dd + expand TELMI, sans WSL
+- DEPRECATED : `Flash-Telmi-SD-V30.bat` / `LATEST-V30.txt` (labo)
+
 ## 0.4.8 — 2026-07-28
 - Fix crash SIGTRAP timeline : division par 0 dans video_screenWriteFont (ALIGN_LEFT)
 - FN : alias multiples + log de tous les codes touche pour diagnostic DTB

@@ -1,6 +1,26 @@
-# Artefacts éventuels à la racine du monorepo
+# Artefacts a la racine du monorepo
 *.img
+*.img.zip
+*.img.7z
 *.7z
 *.tar
+*.log
 .DS_Store
 .idea/
+.vscode/
+
+# Build / extract locaux (sous Telmi-R36)
+Telmi-R36/output/
+Telmi-R36/cache/
+Telmi-R36/staging/
+Telmi-R36/.tools/
+Telmi-R36/img_stock/
+Telmi-R36/assets/
+Telmi-R36/dtb_backup/
+
+# Artefacts audio-probe rebuildables
+Telmi-R36/audio-probe/fbcolor
+Telmi-R36/audio-probe/tone.wav
+
+# Build story-teller (si present)
+Telmi-story-teller-1.10.1/static/build/

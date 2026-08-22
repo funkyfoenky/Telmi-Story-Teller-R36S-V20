@@ -65,11 +65,12 @@ mkdir -p "$OVERLAY_DST"
 rsync -a "$TELMI_R36/overlay/" "$OVERLAY_DST/"
 find "$OVERLAY_DST" -type f \( -name '*.sh' -o -name 'fstab' -o -name 'S*' -o -name 'asound.conf' \) -exec sed -i 's/\r$//' {} + 2>/dev/null || true
 
-echo "==> Compile package telmi-r36s uniquement..."
-make -C "$BUILDROOT_DIR" telmi-r36s-dirclean
-make -C "$BUILDROOT_DIR" telmi-r36s -j"$JOBS"
+echo "==> Compile package telmi-r36s (profil v20)..."
+make -C "$BUILDROOT_DIR" TELMI_PROFILE=v20 telmi-r36s-dirclean
+make -C "$BUILDROOT_DIR" TELMI_PROFILE=v20 telmi-r36s -j"$JOBS"
 
 STORY="$BUILDROOT_DIR/output/target/opt/telmi/bin/storyTeller"
+[[ -x "$STORY" ]] || STORY="$TELMI_R36/staging/v20/opt/telmi/bin/storyTeller"
 [[ -x "$STORY" ]] || STORY="$TELMI_R36/staging/opt/telmi/bin/storyTeller"
 [[ -x "$STORY" ]] || { echo "ERREUR : storyTeller introuvable apres compile"; exit 1; }
 
@@ -97,6 +98,7 @@ echo "==> Injection binaires + overlay leger..."
 mkdir -p "$WORKDIR/root/opt/telmi/bin" "$WORKDIR/root/opt/telmi/telmiVersion" \
 	"$WORKDIR/root/opt/telmi/res" "$WORKDIR/root/opt/telmi/lib/cores"
 cp -f "$BUILDROOT_DIR/output/target/opt/telmi/bin/"* "$WORKDIR/root/opt/telmi/bin/" 2>/dev/null || \
+	cp -f "$TELMI_R36/staging/v20/opt/telmi/bin/"* "$WORKDIR/root/opt/telmi/bin/" 2>/dev/null || \
 	cp -f "$TELMI_R36/staging/opt/telmi/bin/"* "$WORKDIR/root/opt/telmi/bin/"
 # Cores libretro
 if [ -d "$BUILDROOT_DIR/output/target/opt/telmi/lib/cores" ]; then

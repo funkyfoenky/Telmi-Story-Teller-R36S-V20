@@ -111,9 +111,56 @@ main() {
 	fi
 
 	log "Audio : SDL_AUDIODRIVER=$SDL_AUDIODRIVER"
-	amixer -c 0 cset name='Playback Path' SPK 2>/dev/null && log "Playback Path=SPK" || log "WARN: Playback Path indisponible"
+
+	# Mode sonde audio V30 : flag sur TELMI (editable Windows) ou BOOT
+	if [ -f /telmi/AUDIO-PROBE ] || [ -f /boot/TELMI-AUDIO-PROBE ]; then
+		log "MODE AUDIO-PROBE (flag detecte)"
+		_probe=""
+		[ -x /telmi/audio-probe/run.sh ] && _probe=/telmi/audio-probe/run.sh
+		[ -z "$_probe" ] && [ -x /opt/telmi/audio-probe/run.sh ] && _probe=/opt/telmi/audio-probe/run.sh
+		if [ -n "$_probe" ]; then
+			log "Lancement $_probe"
+			"$_probe" 2>&1 | tee -a /telmi/logs/runtime.log 2>/dev/null || "$_probe" 2>&1
+			log "audio-probe termine — extinction"
+			bootScreen End 2>&1 || true
+			poweroff -f 2>/dev/null || halt -f
+			exit 0
+		fi
+		log "WARN: flag AUDIO-PROBE sans run.sh"
+	fi
+
+	# Attendre la carte ALSA (probe codec parfois lent / apres gpio)
+	_i=0
+	while [ "$_i" -lt 15 ]; do
+		[ -e /dev/snd/controlC0 ] && break
+		sleep 1
+		_i=$((_i + 1))
+	done
+	if [ ! -e /dev/snd/controlC0 ]; then
+		log "WARN: pas de /dev/snd/controlC0 apres ${_i}s"
+		ls -la /dev/snd 2>&1 | while read -r _l; do log "snd: $_l"; done
+	else
+		log "ALSA card0 presente"
+	fi
+	# Playback Path selon /boot/TELMI-REV.txt (image unique multi-REV)
+	_play_path=SPK
+	_rev=""
+	[ -f /boot/TELMI-REV.txt ] && _rev=$(tr -d '[:space:]' </boot/TELMI-REV.txt)
+	[ -z "$_rev" ] && [ -f /boot/TELMI-PROFILE.txt ] && _rev=$(tr -d '[:space:]' </boot/TELMI-PROFILE.txt)
+	[ -z "$_rev" ] && [ -f /opt/telmi/telmiVersion/profile.txt ] && _rev=$(tr -d '[:space:]' </opt/telmi/telmiVersion/profile.txt)
+	case "$_rev" in
+		v30*|*panel4*) _play_path=HP ;;
+	esac
+	[ -f /boot/TELMI-AUDIO-PATH.txt ] && _ap=$(tr -d '[:space:]' </boot/TELMI-AUDIO-PATH.txt) && \
+		case "$_ap" in SPK|HP|SPK_HP) _play_path="$_ap" ;; esac
+	log "REV=${_rev:-v20} audio_path=$_play_path"
+	amixer -c 0 cset name='Playback Path' "$_play_path" 2>/dev/null && log "Playback Path=$_play_path" || log "WARN: Playback Path indisponible"
 	amixer -c 0 sset Playback 100% unmute 2>/dev/null || true
 	amixer -c 0 sset DAC 100% unmute 2>/dev/null || true
+	amixer -c 0 sset Headphone unmute 2>/dev/null || true
+	amixer -c 0 sset Speaker unmute 2>/dev/null || true
+	amixer -c 0 sget Playback 2>/dev/null || true
+	amixer -c 0 cget name='Playback Path' 2>/dev/null || true
 
 	log "Lancement storyTeller"
 	run_sdl storyTeller || log "storyTeller echec"

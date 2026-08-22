@@ -1,90 +1,61 @@
-# Telmi-R36 — TelmiOS pour R36S (V20 clone)
+# Telmi-R36 — TelmiOS pour R36S (image unique multi-REV)
 
-Portage de **[Telmi story teller 1.10.1](../Telmi-story-teller-1.10.1)** (Miyoo Mini Plus) vers **R36S-V20** en OS dédié avec boot direct sur TelmiOS.
+Portage de **[Telmi story teller 1.10.1](../Telmi-story-teller-1.10.1)** vers **R36S** (V20 clone, V30 Panel4, REVs futurs) en OS dédié.
 
-## Prérequis
+## Flux produit (une seule image GitHub)
 
-- Image V20 qui boot déjà (`R36S-Clone_V20_2025-05-08.img` ou stock-light)
-- WSL + Buildroot (même toolchain que Hello World)
-- Assets Telmi (polices, PNG, configs) : `bash scripts/fetch-telmi-assets.sh`
-
-## Build rapide
-
-```bash
-# 1. Assets UI (une fois)
-bash Telmi-R36/scripts/fetch-telmi-assets.sh
-
-# 2. Rootfs TelmiOS (Buildroot)
-bash Telmi-R36/scripts/build-telmi-rootfs.sh
-
-# 3. Incrementez la version si besoin (obligatoire si l'image existe deja)
-#    echo 0.4.0 > Telmi-R36/VERSION
-
-# 4. Image SD versionnee
-sudo bash Telmi-R36/scripts/assemble-telmi-v20.sh
+```text
+1. Flasher  output/telmi-r36-<VERSION>.img   via Flash-Telmi-SD.bat
+2. Choisir  Select-Telmi-REV.bat             (V20 ou V30 Panel4)
+3. Boot console
 ```
 
-Image produite : `Telmi-R36/output/telmi-r36-v20-<VERSION>.img`  
-Fichier `LATEST.txt` indique quelle version flasher.  
-Sur la partition BOOT : `TELMI-VERSION.txt`.
+Le sélecteur ne touche que la partition **BOOT** (FAT) : DTB actif + `TELMI-REV.txt`.  
+Pas besoin de rebuilder ni de re-flasher pour changer de REV.
 
-### Flash sur une SD (TELMI = tout l’espace restant)
-
-Préférer une image compacte (~4 Go) puis étendre, **ou** écrire directement sur la carte :
+## Build image unique
 
 ```bash
-# PowerShell admin : monter le lecteur SD dans WSL
-wsl --mount \\.\PHYSICALDRIVEn --bare
+# Bins unifies (quirks runtime via /boot/TELMI-REV.txt)
+bash Telmi-R36/scripts/build-telmi-bins.sh unified storyTeller bootScreen
 
-# Dans WSL root — voir lsblk pour /dev/sdX
-wsl -u root -e bash -lc 'lsblk'
-
-# A) Flash complet (BOOT + root + TELMI max)
-wsl -u root -e bash Telmi-R36/scripts/flash-telmi-sd.sh /dev/sdX
-
-# B) Apres Rufus d'une .img 4 Go : agrandir seulement TELMI
-wsl -u root -e bash Telmi-R36/scripts/flash-telmi-sd.sh /dev/sdX --expand
+# Image ~2.2 Go (base V20 5.10 + DTB pack + bins)
+bash Telmi-R36/scripts/assemble-telmi-unified.sh
 ```
 
-Voir `CHANGELOG.md` pour l’historique.
+Sortie : `Telmi-R36/output/telmi-r36-<VERSION>.img` + `LATEST.txt`  
+Version : `Telmi-R36/VERSION`
+
+Catalogue REV : `boot/revs.json` — DTB : `boot/dtb/v20.dtb`, `boot/dtb/v30-panel4.dtb`
+
+## Flash sur une SD
+
+```bat
+Flash-Telmi-SD.bat
+Select-Telmi-REV.bat
+```
+
+Ou Rufus (mode DD Image) puis `Select-Telmi-REV.bat`.
 
 ## Layout carte SD (slot droite TF-OS)
 
 | Partition | Taille | Contenu |
 |-----------|--------|---------|
-| p1 BOOT | 500 Mo | Noyau 5.10 + `rf3536k3ka.dtb` (stock V20) |
-| p2 root | ~1,5 Go | TelmiOS (binaires, res, Stories/Music/Saves) |
-
-Chemins compatibles Miyoo (symlinks) :
-
-- `/mnt/SDCARD` → `/telmi`
-- `/mnt/SDCARD/.tmp_update` → `/opt/telmi`
-- Stories : `/telmi/Stories/`
-- Musique : `/telmi/Music/`
-- Sauvegardes : `/telmi/Saves/`
+| p1 BOOT | ~500 Mo | Noyau 5.10, `dtb/*`, `rf3536k3ka.dtb` (actif), `TELMI-REV.txt`, `revs.json` |
+| p2 root | ~1,5 Go | TelmiOS (bins unifiés, res) |
+| p3 TELMI | reste | Stories / Music / Games / Saves |
 
 ## Différences Miyoo → R36S
 
 | Miyoo | R36S |
 |-------|------|
-| `SDL_AUDIODRIVER=mmiyoo` | `alsa` |
+| `SDL_AUDIODRIVER=mmiyoo` | `alsa` (Path SPK ou HP selon REV) |
 | `SDL_VIDEODRIVER=mmiyoo` | `kmsdrm` + swrast |
 | ARMv7 32-bit | AArch64 (RK3326) |
-| `libshmvar` / `axp` PMIC | Stubs + sysfs batterie |
-| `autorun.inf` | `init.d` → `telmi-runtime.sh` (+ `autorun.inf` sur TELMI pour Sync) |
-| 752×560 (Plus) / 640×480 | 640×480 |
 
-## État du portage
+## Hors scope image unique
 
-- [x] Boot direct TelmiOS (runtime, bootScreen, storyTeller)
-- [x] Stubs shmvar / axp
-- [x] Image légère sans ROMs
-- [x] Audio ALSA + MP3 (drmp3) — volume `amixer`
-- [x] D-Pad `BTN_DPAD_*` + `ABS_HAT0X/Y`
-- [ ] Écran de charge (`chargingState`) — batterie sysfs à calibrer
-- [ ] Flash logo personnalisé (spécifique Miyoo PMIC)
-- [ ] Partition TELMI visible Telmi Sync sous Windows (p1 vs p3)
+- Builds **ArkOS / noyau 4.4** (~8 Go) — labo uniquement
+- DTB stock V30 4.4 (incompatibles avec le noyau 5.10)
 
-## Licence
-
-Telmi est sous GPL-3.0. Voir le dépôt source DantSu/Telmi-story-teller.
+Voir `profiles/README.md` et `CHANGELOG.md`.

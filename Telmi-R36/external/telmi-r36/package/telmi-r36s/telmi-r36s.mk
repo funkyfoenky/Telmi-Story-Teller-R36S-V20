@@ -38,6 +38,7 @@ endef
 
 define TELMI_R36S_BUILD_CMDS
 	$(MAKE) -C $(@D)/build \
+		TELMI_PROFILE=$(or $(TELMI_PROFILE),v20) \
 		CC=$(TARGET_CC) \
 		CXX=$(TARGET_CXX) \
 		STRIP=$(TARGET_STRIP) \
@@ -51,8 +52,15 @@ endef
 define TELMI_R36S_INSTALL_TARGET_CMDS
 	mkdir -p $(TARGET_DIR)/opt/telmi/bin $(TARGET_DIR)/opt/telmi/res \
 		$(TARGET_DIR)/opt/telmi/config $(TARGET_DIR)/opt/telmi/lib/cores
-	rsync -a $(@D)/staging/opt/telmi/bin/ $(TARGET_DIR)/opt/telmi/bin/
-	if [ -d "$(@D)/staging/opt/telmi/lib/cores" ]; then \
+	# Prefer staging/<profil> puis fallback staging/opt
+	if [ -d "$(@D)/staging/$(or $(TELMI_PROFILE),v20)/opt/telmi/bin" ]; then \
+		rsync -a $(@D)/staging/$(or $(TELMI_PROFILE),v20)/opt/telmi/bin/ $(TARGET_DIR)/opt/telmi/bin/; \
+	else \
+		rsync -a $(@D)/staging/opt/telmi/bin/ $(TARGET_DIR)/opt/telmi/bin/; \
+	fi
+	if [ -d "$(@D)/staging/$(or $(TELMI_PROFILE),v20)/opt/telmi/lib/cores" ]; then \
+		rsync -a $(@D)/staging/$(or $(TELMI_PROFILE),v20)/opt/telmi/lib/cores/ $(TARGET_DIR)/opt/telmi/lib/cores/; \
+	elif [ -d "$(@D)/staging/opt/telmi/lib/cores" ]; then \
 		rsync -a $(@D)/staging/opt/telmi/lib/cores/ $(TARGET_DIR)/opt/telmi/lib/cores/; \
 	fi
 	if [ -d "$(@D)/assets/res" ]; then \
@@ -64,6 +72,7 @@ define TELMI_R36S_INSTALL_TARGET_CMDS
 	mkdir -p $(TARGET_DIR)/telmi $(TARGET_DIR)/mnt $(TARGET_DIR)/opt/telmi/telmiVersion
 	ln -sf /telmi $(TARGET_DIR)/mnt/SDCARD
 	echo -n "v1.10.1" > $(TARGET_DIR)/opt/telmi/telmiVersion/version.txt
+	echo -n "$(or $(TELMI_PROFILE),v20)" > $(TARGET_DIR)/opt/telmi/telmiVersion/profile.txt
 	chmod +x $(TARGET_DIR)/opt/telmi/bin/*
 	# Evite le crash panfrost sur noyau vendor 5.10 : ne garder que swrast
 	for d in panfrost_dri.so rockchip_dri.so mali-dp_dri.so; do \
