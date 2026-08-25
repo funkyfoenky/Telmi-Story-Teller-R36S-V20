@@ -1,6 +1,6 @@
 /dev/mmcblk1p2	/	ext4	defaults,noatime	0	1
 /dev/mmcblk1p1	/boot	vfat	defaults,nofail	0	2
-LABEL=TELMI	/telmi	vfat	defaults,noatime,umask=0000,shortname=win95,nofail	0	2
+# /telmi : monte par S06telmi-content (dual-SD externe ou fallback p3 OS)
 
 proc		/proc	proc	defaults	0	0
 devpts		/dev/pts	devpts	defaults,gid=5,mode=620,ptmxmode=0666	0	0

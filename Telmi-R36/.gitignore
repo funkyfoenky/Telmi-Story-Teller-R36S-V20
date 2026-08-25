@@ -1,14 +1,4 @@
 /cache/
 /staging/
 /output/
-/.tools/
-/img_stock/
 /assets/
-/dtb_backup/
-*.img
-*.img.zip
-*.img.7z
-*.tar
-*.log
-/audio-probe/fbcolor
-/audio-probe/tone.wav

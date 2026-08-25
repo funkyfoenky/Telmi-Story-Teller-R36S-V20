@@ -1,51 +1,20 @@
 #!/bin/sh
-# Monte la partition contenu TELMI (p3 FAT32) + bind mount .tmp_update
+# Monte contenu Telmi (dual-SD : slot gauche prioritaire, fallback p3 OS) + bind .tmp_update
 
-mount_telmi() {
-	mount -L TELMI /telmi 2>/dev/null || \
-		mount -t vfat -L TELMI /telmi 2>/dev/null || \
-		mount /dev/mmcblk1p3 /telmi 2>/dev/null || \
-		mount /dev/mmcblk0p3 /telmi 2>/dev/null
-}
-
-setup_tmp_update() {
-	mkdir -p /telmi/.tmp_update
-	umount /telmi/.tmp_update 2>/dev/null || true
-	mount --bind /opt/telmi /telmi/.tmp_update 2>/dev/null || true
-}
+TELMI_MOUNT=/opt/telmi/bin/telmi-mount-content.sh
 
 case "$1" in
 	start)
-		mkdir -p /telmi
-		if ! mountpoint -q /telmi; then
-			_i=0
-			while [ "$_i" -lt 3 ]; do
-				mount_telmi && break
-				sleep 1
-				_i=$((_i + 1))
-			done
-		fi
-		if mountpoint -q /telmi; then
-			mkdir -p /telmi/Stories /telmi/Music \
-				/telmi/Saves/Stories /telmi/logs
-			if [ ! -f /telmi/Saves/.parameters ]; then
-				cat > /telmi/Saves/.parameters <<'EOF'
-{"audioVolumeStartup":0.5,"audioVolumeMax":1.0,"screenBrightnessStartup":0.4,"screenBrightnessMax":0.8,"screenOnInactivityTime":60,"screenOffInactivityTime":120,"musicInactivityTime":1800,"storyDisplayTiles":true,"storyDisableNightMode":false,"storyDisableTimeline":false,"musicDisableRepeatModes":false,"bootSplashscreen":""}
-EOF
-			fi
-			if [ ! -f /telmi/autorun.inf ]; then
-				cat > /telmi/autorun.inf <<'EOF'
-[autorun]
-icon  = .tmp_update/res/sdcard.ico
-label = TelmiOS-v1.10.1
-EOF
-			fi
-			setup_tmp_update
+		if [ -x "$TELMI_MOUNT" ]; then
+			"$TELMI_MOUNT" setup || true
+		else
+			echo "WARN: $TELMI_MOUNT absent" >&2
 		fi
 		;;
 	stop)
 		umount /telmi/.tmp_update 2>/dev/null || true
 		umount /telmi 2>/dev/null || true
+		rm -f /run/telmi-content-mode
 		;;
 	*) exit 1 ;;
 esac

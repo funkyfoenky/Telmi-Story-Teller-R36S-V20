@@ -4,7 +4,7 @@
   "revs": [
     {
       "id": "v20",
-      "label": "R36S V20 (clone)",
+      "label": "R36S V20 (clone, DTB stock)",
       "dtb": "dtb/v20.dtb",
       "audio_path": "SPK",
       "ignore_zed_keyboard": false

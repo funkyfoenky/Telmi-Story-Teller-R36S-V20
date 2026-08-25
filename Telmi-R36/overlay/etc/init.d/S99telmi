@@ -14,6 +14,7 @@ case "$1" in
 		# Splash le plus tot possible (S06 a deja tente le mount TELMI)
 		if [ -x /opt/telmi/bin/bootScreen ]; then
 			/opt/telmi/bin/bootScreen Boot >>"$LOG_BOOT" 2>&1 || true
+			touch /run/telmi-bootsplash 2>/dev/null || true
 		fi
 		if mountpoint -q /telmi; then
 			mkdir -p /telmi/logs

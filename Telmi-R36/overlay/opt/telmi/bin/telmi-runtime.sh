@@ -8,11 +8,44 @@ export SDL_AUDIODRIVER=alsa
 
 log() { echo "[telmi] $(date '+%H:%M:%S') $*"; }
 
+get_telmi_rev() {
+	_rev=""
+	[ -f /boot/TELMI-REV.txt ] && _rev=$(tr -d '\r\n ' < /boot/TELMI-REV.txt)
+	echo "$_rev"
+}
+
+runtime_log() {
+	_msg="$1"
+	# /telmi pas monte au boot : fallback /boot
+	if mkdir -p /telmi/logs 2>/dev/null; then
+		echo "$_msg" >> /telmi/logs/runtime.log 2>/dev/null && return 0
+	fi
+	echo "$_msg" >> /boot/telmi-runtime.log 2>/dev/null || true
+}
+
 ensure_content_mounted() {
+	TELMI_MOUNT=/opt/telmi/bin/telmi-mount-content.sh
+	if ! mountpoint -q /telmi 2>/dev/null; then
+		if [ -x "$TELMI_MOUNT" ]; then
+			# S06 a deja tente : retry plus long sur V30 (slot SD gauche lent)
+			_rev=$(get_telmi_rev)
+			case "$_rev" in
+				v30*|V30*) _wait=12 ;;
+				*) _wait=3 ;;
+			esac
+			TELMI_WAIT_MAX="$_wait" "$TELMI_MOUNT" setup || log "WARN : montage contenu echoue"
+		else
+			log "ERREUR : $TELMI_MOUNT absent"
+			return 1
+		fi
+	fi
 	if ! mountpoint -q /telmi 2>/dev/null; then
 		log "ERREUR : /telmi non monte — Stories/Music indisponibles"
 		return 1
 	fi
+	_mode=$(cat /run/telmi-content-mode 2>/dev/null || echo unknown)
+	_src=$(awk '$2=="/telmi"{print $1;exit}' /proc/mounts 2>/dev/null || echo ?)
+	log "Contenu monte : $_src (mode=$_mode)"
 	mkdir -p /telmi/.tmp_update /telmi/Stories /telmi/Music /telmi/Saves/Stories /telmi/logs
 	if ! mountpoint -q /telmi/.tmp_update 2>/dev/null; then
 		mount --bind /opt/telmi /telmi/.tmp_update 2>/dev/null || true
@@ -26,7 +59,7 @@ ensure_content_mounted() {
 EOF
 	fi
 	_nstories=$(find /telmi/Stories -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
-	log "Contenu : ${_nstories} histoire(s) sous /telmi/Stories"
+	log "${_nstories} histoire(s) sous /telmi/Stories"
 	return 0
 }
 
@@ -88,12 +121,39 @@ main() {
 	if [ -f /opt/telmi/telmiVersion/image-version.txt ]; then
 		log "Image $(cat /opt/telmi/telmiVersion/image-version.txt) build $(cat /opt/telmi/telmiVersion/build-id.txt 2>/dev/null)"
 	fi
-	echo "[telmi] runtime pid $$" >> /telmi/logs/runtime.log 2>/dev/null
+	runtime_log "[telmi] runtime pid $$"
 	init_display
 
-	# Splash immediat (logo PNG sur fb0) — avant le reste
-	log "Lancement bootScreen (framebuffer)"
-	bootScreen Boot 2>&1 || log "bootScreen ignore"
+	# Splash deja fait par S99 : ne pas rejouer (gain ~2-3s)
+	if [ -f /run/telmi-bootsplash ]; then
+		log "bootScreen deja affiche (S99)"
+	else
+		log "Lancement bootScreen (framebuffer)"
+		bootScreen Boot 2>&1 || log "bootScreen ignore"
+		touch /run/telmi-bootsplash 2>/dev/null || true
+	fi
+
+	# Mode diagnostic SD V30 : flag BOOT, avant montage contenu / storyTeller
+	if [ -f /boot/TELMI-SD-DIAG ]; then
+		_rev=$(get_telmi_rev)
+		case "$_rev" in
+			v30*|V30*)
+				log "MODE SD-DIAG V30 (flag TELMI-SD-DIAG)"
+				if [ -x /opt/telmi/bin/telmi-sd-diag.sh ]; then
+					/opt/telmi/bin/telmi-sd-diag.sh 2>&1 | tee -a /boot/telmi-runtime.log 2>/dev/null || \
+						/opt/telmi/bin/telmi-sd-diag.sh 2>&1 || true
+					log "sd-diag termine — extinction"
+					bootScreen End 2>&1 || true
+					poweroff -f 2>/dev/null || halt -f
+					exit 0
+				fi
+				log "WARN: TELMI-SD-DIAG sans telmi-sd-diag.sh"
+				;;
+			*)
+				log "TELMI-SD-DIAG ignore (REV=${_rev:-?} pas v30) — boot normal"
+				;;
+		esac
+	fi
 
 	ensure_content_mounted || log "WARN : poursuite sans partition TELMI montee"
 

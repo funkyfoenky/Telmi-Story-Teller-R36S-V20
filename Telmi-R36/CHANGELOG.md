@@ -1,12 +1,50 @@
 # TelmiOS R36S — changelog images
 
+## 0.6.6 — 2026-08-25
+- **Fix V30 dual-SD (diag 0.6.5)** : slot gauche ne partage plus `vccio_sd` avec l OS
+  - `vqmmc` gauche = `vcc_sd` 3.3V fixe (evite course UHS 1.8V de mmc1)
+  - UHS retire sur ff380000 ; eMMC fantome ff390000 desactive
+
+## 0.6.5 — 2026-08-25
+- Mode **SD-DIAG V30** : flag `/boot/TELMI-SD-DIAG` → inventaire MMC/DTB/GPIO/regulateurs + rescan/pulse, log sur BOOT, extinction (pas de storyTeller)
+- Windows : `sd-diag/Enable-SD-Diag.bat` / `Disable-SD-Diag.bat`
+
+## 0.6.4 — 2026-08-25
+- **Fix V30 dual-SD (stock DTB)** : slot gauche aligne sur ArkOS / `rk3326-rg351mp-linux`
+  - `cd-gpios` : gpio3 pin14 (au lieu de gpio0 pin2 = conflit `wifi chip_en`)
+  - `vqmmc-supply` : `vccio_sd` (au lieu de `vcc2v8_dvp`)
+- Note : `gameconsole-r36s.dtb` / `rg351mp-kernel.dtb` ont le 2e slot **disabled** — pas de dual-SD
+
+## 0.6.3 — 2026-08-24
+- **Fix V30 dual-SD** : panel Panel4 utilisait le meme regulateur (vcc1v8_dvp) que le slot SD gauche — le 2e TF n etait jamais detecte (`host mmc2: cards=0`)
+- Panel alimente via `vcc18_lcd_n` ; slot gauche via `vcc_sd` (comme slot OS)
+
+## 0.6.2 — 2026-08-24
+- V30 dual-SD : attente 20s + retry 12s, rescan MMC agressif, logs host/cards/blocks
+- DTB V30 : `broken-cd` sur les 2 slots SD (detect GPIO souvent faux)
+- Fix log runtime si /telmi pas monte (fallback /boot/telmi-runtime.log)
+
+## 0.6.1 — 2026-08-24
+- Boot plus rapide : attente dual-SD 8s (au lieu de 25s×2) + splash unique
+- DTB V20 stock (fix boot noir depuis 0.5.0)
+- Montage BusyBox blkid corrige (carte gauche TELMI)
+- Politique : bump mineur (0.6.x) a chaque correctif flashable
+
+## 0.6.0 — 2026-08-24
+- **Dual-SD** : OS slot droit (TF-OS) + contenu slot gauche (TF2) pour Telmi Sync
+- Montage automatique : carte non-OS prioritaire sur `/telmi` (`telmi-mount-content.sh`)
+- Fallback single-SD : p3 TELMI sur carte OS si pas de carte gauche
+- Windows : `Prepare-Content-SD.bat`, `Flash-Telmi-SD-OS-Only.bat` (`-Mode os-only`)
+- Build : `TELMI_OS_ONLY=1` sur assemble (BOOT + root, sans p3)
+- **Fix V20 boot** : `dtb/v20.dtb` = DTB stock (107328 o) — le DTB Telmi 108028 o cassait le boot depuis 0.5.0
+- Fix montage BusyBox : parse `blkid` sans `-s/-o` (carte gauche TELMI enfin montee)
+
 ## 0.5.0 — 2026-08-22
 - **Image unique multi-REV** : `telmi-r36-0.5.0.img` + `Select-Telmi-REV.bat`
 - Un seul binaire : quirks V20/V30 via `/boot/TELMI-REV.txt` (audio Path, zed_keyboard)
 - BOOT : `dtb/v20.dtb`, `dtb/v30-panel4.dtb`, `revs.json`
 - Audio V30 Panel4 : Path=HP (valide par audio-probe)
 - bootScreen PNG (logo Boot / Screen_Off)
-- Flash SD **Windows natif** (`flash-telmi-sd-win.ps1`) : clean disque + dd + expand TELMI, sans WSL
 - DEPRECATED : `Flash-Telmi-SD-V30.bat` / `LATEST-V30.txt` (labo)
 
 ## 0.4.8 — 2026-07-28

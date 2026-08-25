@@ -6,13 +6,14 @@
 #   powershell -File flash-telmi-sd-win.ps1 -Mode expand -DiskNumber 2 -Yes
 #
 # Modes :
-#   from-image  ecrit LATEST.img puis recree TELMI sur tout l'espace restant
+#   from-image  ecrit LATEST.img puis recree TELMI sur tout l'espace restant (single-SD legacy)
+#   os-only     flash OS sans expand p3 (dual-SD : contenu sur slot gauche)
 #   expand      recree seulement p3 TELMI (apres Rufus / flash partiel)
 
 #Requires -RunAsAdministrator
 param(
     [int]$DiskNumber = -1,
-    [ValidateSet('from-image', 'expand')]
+    [ValidateSet('from-image', 'os-only', 'expand')]
     [string]$Mode = 'from-image',
     [switch]$Yes,
     [string]$ImagePath = ''
@@ -21,6 +22,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $TelmiR36 = Split-Path -Parent $ScriptDir
+. (Join-Path $ScriptDir 'telmi-sd-common.ps1')
 $OutputDir = Join-Path $TelmiR36 'output'
 $ContentDir = Join-Path $TelmiR36 'content'
 $LatestFile = Join-Path $OutputDir 'LATEST.txt'
@@ -64,110 +66,7 @@ function Get-RemovableDisks {
     }
 }
 
-# Acces raw PhysicalDrive (CreateFile)  -  FileStream seul echoue souvent sur USB monte
-if (-not ('TelmiDiskIO' -as [type])) {
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class TelmiDiskIO {
-    public const uint GENERIC_READ = 0x80000000;
-    public const uint GENERIC_WRITE = 0x40000000;
-    public const uint FILE_SHARE_READ = 0x1;
-    public const uint FILE_SHARE_WRITE = 0x2;
-    public const uint OPEN_EXISTING = 3;
-    public const uint FILE_FLAG_WRITE_THROUGH = 0x80000000;
-    public const uint FSCTL_LOCK_VOLUME = 0x00090018;
-    public const uint FSCTL_DISMOUNT_VOLUME = 0x00090020;
-    public static readonly IntPtr INVALID = new IntPtr(-1);
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    public static extern IntPtr CreateFile(string lpFileName, uint dwDesiredAccess,
-        uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition,
-        uint dwFlagsAndAttributes, IntPtr hTemplateFile);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool DeviceIoControl(IntPtr hDevice, uint dwIoControlCode,
-        IntPtr lpInBuffer, uint nInBufferSize, IntPtr lpOutBuffer, uint nOutBufferSize,
-        out uint lpBytesReturned, IntPtr lpOverlapped);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool WriteFile(IntPtr hFile, byte[] lpBuffer, uint nNumberOfBytesToWrite,
-        out uint lpNumberOfBytesWritten, IntPtr lpOverlapped);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool ReadFile(IntPtr hFile, byte[] lpBuffer, uint nNumberOfBytesToRead,
-        out uint lpNumberOfBytesRead, IntPtr lpOverlapped);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool SetFilePointerEx(IntPtr hFile, long liDistanceToMove,
-        out long lpNewFilePointer, uint dwMoveMethod);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool FlushFileBuffers(IntPtr hFile);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool CloseHandle(IntPtr hObject);
-
-    public static void LockAndDismountLetter(char letter) {
-        IntPtr h = LockVolumeLetter(letter);
-        if (h != INVALID) CloseHandle(h);
-    }
-
-    // Garde le handle ouvert : le verrou tient jusqu a CloseHandle (critique pendant le dd)
-    public static IntPtr LockVolumeLetter(char letter) {
-        string path = "\\\\.\\" + letter + ":";
-        IntPtr h = CreateFile(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
-            IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
-        if (h == INVALID) return INVALID;
-        uint br;
-        DeviceIoControl(h, FSCTL_LOCK_VOLUME, IntPtr.Zero, 0, IntPtr.Zero, 0, out br, IntPtr.Zero);
-        DeviceIoControl(h, FSCTL_DISMOUNT_VOLUME, IntPtr.Zero, 0, IntPtr.Zero, 0, out br, IntPtr.Zero);
-        return h;
-    }
-}
-'@
-}
-
-# FormatEx (fmifs) : FAT32 > 32 Go (limite artificelle de Format-Volume / explorer)
-if (-not ('TelmiFmifs' -as [type])) {
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public static class TelmiFmifs {
-    public const int FmMediaRemovable = 11;
-    public const int FmMediaFixed = 12;
-    public const uint CbDone = 11;
-
-    public static bool LastSuccess = false;
-
-    public delegate bool FormatExCallback(uint command, uint modifier, IntPtr argument);
-
-    [DllImport("fmifs.dll", CharSet = CharSet.Unicode)]
-    public static extern void FormatEx(
-        string driveRoot,
-        int mediaFlag,
-        string format,
-        string label,
-        bool quickFormat,
-        int clusterSize,
-        FormatExCallback callback);
-
-    public static bool OnFormat(uint command, uint modifier, IntPtr argument) {
-        if (command == CbDone && argument != IntPtr.Zero) {
-            LastSuccess = Marshal.ReadByte(argument) != 0;
-        }
-        return true; // continuer
-    }
-
-    public static bool TryFormatFat32(string root, string label, int mediaFlag, int clusterSize) {
-        LastSuccess = false;
-        FormatExCallback cb = OnFormat;
-        FormatEx(root, mediaFlag, "FAT32", label, true, clusterSize, cb);
-        return LastSuccess;
-    }
-}
-'@
-}
+# TelmiDiskIO + TelmiFmifs : definis dans telmi-sd-common.ps1 (dot-source plus haut)
 
 function Dismount-DiskVolumes([int]$num) {
     Get-Partition -DiskNumber $num -EA SilentlyContinue | ForEach-Object {
@@ -629,36 +528,7 @@ function Format-TelmiFat32([char]$DriveLetter, [int64]$SizeBytes) {
 }
 
 function Seed-TelmiContent([string]$DriveRoot) {
-    Write-Host '==> Contenu TELMI (Stories/Music/Games/...)'
-    $dirs = @(
-        'Stories', 'Music', 'Games', 'Saves', 'Saves\Stories', 'logs', 'config',
-        'Games\gb', 'Games\gbc', 'Games\gba', 'Games\nes', 'Games\md', 'Games\snes', 'Games\psx'
-    )
-    foreach ($d in $dirs) {
-        New-Item -ItemType Directory -Force -Path (Join-Path $DriveRoot $d) | Out-Null
-    }
-    foreach ($d in @('gb', 'gbc', 'gba', 'nes', 'md', 'snes', 'psx')) {
-        $keep = Join-Path $DriveRoot "Games\$d\.keep"
-        if (-not (Test-Path $keep)) { New-Item -ItemType File -Force -Path $keep | Out-Null }
-    }
-    if (Test-Path $ContentDir) {
-        Copy-Item -Path (Join-Path $ContentDir '*') -Destination $DriveRoot -Recurse -Force -EA SilentlyContinue
-    }
-    $sysJson = Join-Path $TelmiR36 'assets\res\miyoo283_system.json'
-    $dstSys = Join-Path $DriveRoot 'system.json'
-    if ((Test-Path $sysJson) -and -not (Test-Path $dstSys)) {
-        Copy-Item -Force $sysJson $dstSys
-    }
-    $readme = Join-Path $DriveRoot 'README.txt'
-    if (-not (Test-Path $readme)) {
-        Set-Content -Path $readme -Encoding UTF8 -Value @"
-TelmiOS - partition TELMI (FAT32)
-
-Stories/  Music/  Games/  Saves/
-Montee sur la console a /telmi
-Apres flash : Select-Telmi-REV.bat pour choisir V20 / V30
-"@
-    }
+    Seed-TelmiContentTree -DriveRoot $DriveRoot -ContentDir $ContentDir -TelmiR36 $TelmiR36
 }
 
 # --- main ---
@@ -668,7 +538,7 @@ Write-Host ' TelmiOS flash SD (Windows natif, sans WSL)' -ForegroundColor Cyan
 Write-Host '============================================================' -ForegroundColor Cyan
 
 $img = $null
-if ($Mode -eq 'from-image') {
+if ($Mode -in @('from-image', 'os-only')) {
     $img = Get-LatestImage
     if (-not $img) { throw 'Aucune image telmi-r36-*.img (LATEST.txt)' }
     Write-Host (" Image : {0}" -f $img)
@@ -724,8 +594,7 @@ try {
     try { Set-Disk -Number $diskNum -IsReadOnly $false -EA SilentlyContinue } catch {}
     Set-TelmiDiskOffline -num $diskNum -offline $false
 
-    if ($Mode -eq 'from-image') {
-        # Cle : disque vierge avant dd (sinon Win32=5 des que Windows touche aux anciens volumes)
+    if ($Mode -in @('from-image', 'os-only')) {
         Clear-TelmiDisk -num $diskNum
         Write-ImageToPhysicalDrive -imgPath $img -diskNum $diskNum -diskBytes ([int64]$disk.Size)
         Write-Host '==> Correction GPT (sgdisk -e equivalent)...'
@@ -751,10 +620,19 @@ Update-Disk -Number $diskNum -EA SilentlyContinue
 Start-Sleep -Seconds 2
 try { $null = Get-Partition -DiskNumber $diskNum } catch {}
 
-Expand-TelmiPartition -diskNum $diskNum
+if ($Mode -eq 'expand' -or $Mode -eq 'from-image') {
+    Expand-TelmiPartition -diskNum $diskNum
+} else {
+    Write-Host ' Mode os-only : pas d expand p3 (contenu sur slot gauche via Prepare-Content-SD.bat)' -ForegroundColor Yellow
+}
 
 Write-Host ''
 Write-Host '============================================================' -ForegroundColor Green
-Write-Host ' Flash/expand OK (sans WSL)' -ForegroundColor Green
-Write-Host ' Ensuite : Select-Telmi-REV.bat  (V20 ou V30 Panel4)' -ForegroundColor Green
+if ($Mode -eq 'os-only') {
+    Write-Host ' Flash OS OK (dual-SD)' -ForegroundColor Green
+    Write-Host ' Ensuite : Prepare-Content-SD.bat (slot gauche) + Select-Telmi-REV.bat' -ForegroundColor Green
+} else {
+    Write-Host ' Flash/expand OK (sans WSL)' -ForegroundColor Green
+    Write-Host ' Ensuite : Select-Telmi-REV.bat  (V20 ou V30 Panel4)' -ForegroundColor Green
+}
 Write-Host '============================================================' -ForegroundColor Green

@@ -93,6 +93,17 @@ echo "============================================================"
 echo "==> Copie image..."
 cp -f --reflink=auto "$BASE_IMG" "$OUTPUT_IMG" 2>/dev/null || cp -f "$BASE_IMG" "$OUTPUT_IMG"
 
+TELMI_OS_ONLY="${TELMI_OS_ONLY:-0}"
+if [[ "$TELMI_OS_ONLY" == "1" ]]; then
+	echo "==> OS-only dual-SD : suppression partition p3..."
+	for _tool in parted sgdisk; do command -v "$_tool" >/dev/null && break; done
+	parted -s "$OUTPUT_IMG" rm 3 2>/dev/null || true
+	if command -v sgdisk >/dev/null 2>&1; then
+		sgdisk -d 3 "$OUTPUT_IMG" 2>/dev/null || true
+		sgdisk -e "$OUTPUT_IMG" 2>/dev/null || true
+	fi
+fi
+
 WORKDIR="$(mktemp -d /tmp/telmi-unified-XXXXXX)"
 cleanup() {
 	fusermount -u "$WORKDIR/root" 2>/dev/null || true
@@ -105,12 +116,15 @@ BOOT_IMG="$WORKDIR/boot.fat"
 dd if="$OUTPUT_IMG" of="$BOOT_IMG" bs=512 skip="$BOOT_RESERVED_SECTORS" \
 	count="$BOOT_PART_SECTORS" status=none
 
-# Catalogue + DTB pack
-mmd -i "$BOOT_IMG" ::/dtb 2>/dev/null || true
+# Catalogue + DTB pack (::/dtb deja present sur images unified depuis 0.5.0)
+if ! mdir -i "$BOOT_IMG" ::/dtb >/dev/null 2>&1; then
+	mmd -i "$BOOT_IMG" ::/dtb
+fi
 mcopy -o -i "$BOOT_IMG" "$REVS_JSON" ::/revs.json
+# V20 = DTB stock (107328 o) — le DTB Telmi modifie (108028 o) ne boot plus sur V20 depuis 0.5.0
 mcopy -o -i "$BOOT_IMG" "$DTB_DIR/v20.dtb" ::/dtb/v20.dtb
 mcopy -o -i "$BOOT_IMG" "$DTB_DIR/v30-panel4.dtb" ::/dtb/v30-panel4.dtb
-# Actif = V20 par defaut
+# Actif = V20 par defaut (stock)
 mcopy -o -i "$BOOT_IMG" "$DTB_DIR/v20.dtb" ::/rf3536k3ka.dtb
 
 echo -n "$DEFAULT_REV" > "$WORKDIR/TELMI-REV.txt"
@@ -147,10 +161,16 @@ cp -f "$STORY" "$WORKDIR/root/opt/telmi/bin/storyTeller"
 if [[ -n "${BOOTSCREEN:-}" && -x "$BOOTSCREEN" ]]; then
 	cp -f "$BOOTSCREEN" "$WORKDIR/root/opt/telmi/bin/bootScreen"
 fi
-if [[ -f "$TELMI_R36/overlay/opt/telmi/bin/telmi-runtime.sh" ]]; then
-	cp -f "$TELMI_R36/overlay/opt/telmi/bin/telmi-runtime.sh" \
-		"$WORKDIR/root/opt/telmi/bin/telmi-runtime.sh"
+# Overlay runtime (mount contenu dual-SD, init, fstab sans LABEL=TELMI)
+if [[ -d "$TELMI_R36/overlay/opt/telmi/bin" ]]; then
+	rsync -a "$TELMI_R36/overlay/opt/telmi/bin/" "$WORKDIR/root/opt/telmi/bin/" 2>/dev/null || true
 fi
+if [[ -d "$TELMI_R36/overlay/etc" ]]; then
+	rsync -a "$TELMI_R36/overlay/etc/" "$WORKDIR/root/etc/" 2>/dev/null || true
+fi
+find "$WORKDIR/root/opt/telmi/bin" -type f -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+find "$WORKDIR/root/etc/init.d" -type f -name 'S*telmi*' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+chmod +x "$WORKDIR/root/etc/init.d/"S*telmi* 2>/dev/null || true
 if [[ -d "$TELMI_R36/assets/res" ]]; then
 	rsync -a "$TELMI_R36/assets/res/" "$WORKDIR/root/opt/telmi/res/"
 fi
@@ -185,6 +205,11 @@ echo "$(basename "$OUTPUT_IMG")" > "$OUTPUT_DIR/LATEST.txt"
 echo ""
 echo "============================================================"
 echo " OK $OUTPUT_IMG ($(du -h "$OUTPUT_IMG" | cut -f1))"
-echo " Flash : Flash-Telmi-SD.bat"
+if [[ "$TELMI_OS_ONLY" == "1" ]]; then
+	echo " Flash : Flash-Telmi-SD-OS-Only.bat  (slot droit)"
+	echo " Contenu : Prepare-Content-SD.bat     (slot gauche)"
+else
+	echo " Flash : Flash-Telmi-SD.bat"
+fi
 echo " Puis  : Select-Telmi-REV.bat  (V20 ou V30 Panel4)"
 echo "============================================================"

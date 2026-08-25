@@ -1,4 +1,0 @@
-select disk 2
-select partition 1
-assign letter=T
-list volume
