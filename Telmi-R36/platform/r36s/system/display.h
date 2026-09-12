@@ -49,9 +49,8 @@ void display_reset(void) {}
 
 void display_setScreen(bool enabled)
 {
-	/* Ne jamais blanker fb0 (ecran noir avec kmsdrm). Unblank si demande. */
-	if (enabled)
-		file_write("/sys/class/graphics/fb0/blank", "0", 1);
+	/* fb0 : blanker le panneau en lecture (écran noir Telmi). */
+	file_write("/sys/class/graphics/fb0/blank", enabled ? "0" : "1", 1);
 	display_enabled = enabled;
 }
 

@@ -1,6 +1,6 @@
 # Profils matériels — image unique multi-REV
 
-Depuis **0.5.0**, une seule image `telmi-r36-<VERSION>.img` couvre V20 et V30 Panel4.
+Depuis **0.5.0**, une seule image `telmi-r36-<VERSION>.img` couvre plusieurs révisions (V20, V30 Panel4, Y3506 V05, …).
 
 | Étape | Action |
 |-------|--------|
@@ -18,8 +18,11 @@ DTB : [`boot/dtb/`](../boot/dtb/)
 |----|-------|------------|-------|
 | `v20` | R36S V20 (clone) | SPK | Défaut après assemble |
 | `v30-panel4` | R36S V30 Panel 4 | HP | Ignore `zed_keyboard` fantôme |
+| `y3506-v05` | R36S Y3506 V05 legacy | HP | KO distant (enable-gpios / base v20) |
+| `y3506-v05b` | R36S Y3506 V05b | HP | Base Panel4 + init DarkOS, sans enable-gpios |
 
-Ajouter un REV = nouveau DTB 5.10 dans `boot/dtb/` + entrée dans `revs.json` (pas de nouvelle image).
+Ajouter un REV = nouveau DTB 5.10 dans `boot/dtb/` + entrée dans `revs.json` (pas de nouvelle image).  
+Y3506 : `python3 scripts/port-y3506-v05b-dtb.py` (base `v30-panel4.dtb`).
 
 ## Legacy
 

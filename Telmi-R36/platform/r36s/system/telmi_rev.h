@@ -93,7 +93,18 @@ static int telmi_rev_is_v30(void)
 	return 0;
 }
 
-/* ALSA Playback Path : HP sur V30 Panel4, SPK sinon.
+/* ALSA Playback Path HP : V30 Panel4 + Y3506 (routing DarkOS = casque). */
+static int telmi_rev_uses_hp(void)
+{
+	const char *id = telmi_rev_id();
+	if (telmi_rev_is_v30())
+		return 1;
+	if (strncmp(id, "y3506", 5) == 0)
+		return 1;
+	return 0;
+}
+
+/* ALSA Playback Path : HP sur V30 Panel4 / Y3506, SPK sinon.
  * Surcharge : /boot/TELMI-AUDIO-PATH.txt (SPK | HP | SPK_HP). */
 static const char *telmi_audio_path(void)
 {
@@ -111,7 +122,7 @@ static const char *telmi_audio_path(void)
 	}
 	if (telmi_audio_override[0])
 		return telmi_audio_override;
-	return telmi_rev_is_v30() ? "HP" : "SPK";
+	return telmi_rev_uses_hp() ? "HP" : "SPK";
 }
 
 /* Sur V30, zed_keyboard est un fantome VOL- ; sur V20 c'est le vrai volume. */

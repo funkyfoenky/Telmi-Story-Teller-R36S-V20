@@ -374,6 +374,15 @@ int main(int argc, char *argv[]) {
 						break;
 					}
 					autosleep_keepAwake();
+					/* Start AVANT Fn : sur clones HAPPY2 etait classe menu. */
+					if (HW_BTN_IS_START(ev.code)) {
+						fprintf(stderr, "[telmi] START/pause code=%u\n", ev.code);
+						fflush(stderr);
+						if (time_wait()) {
+							app_pause();
+						}
+						break;
+					}
 					if (HW_BTN_IS_MENU(ev.code)) {
 						if (!menuPreventDefault) {
 							app_menu();
@@ -391,34 +400,50 @@ int main(int argc, char *argv[]) {
 							startPowerPressed = false;
 							break;
 						case HW_BTN_LEFT :
-							app_previous();
+							if (time_wait()) {
+								app_previous();
+							}
 							break;
 						case HW_BTN_RIGHT :
-							app_next();
+							if (time_wait()) {
+								app_next();
+							}
 							break;
 						case HW_BTN_UP :
-							app_up();
+							if (time_wait()) {
+								app_up();
+							}
 							break;
 						case HW_BTN_DOWN :
-							app_down();
-							break;
-						case HW_BTN_START :
-						case HW_BTN_START_ALT :
-							app_pause();
+							if (time_wait()) {
+								app_down();
+							}
 							break;
 						case HW_BTN_A :
 						case HW_BTN_B :
-							if (app_ok())
-								telmi_launch_rom(app_getLaunchConsoleId(),
-										 app_getLaunchRomPath());
+							if (time_wait()) {
+								if (app_ok())
+									telmi_launch_rom(app_getLaunchConsoleId(),
+											 app_getLaunchRomPath());
+							}
 							break;
 						case HW_BTN_Y :
 						case HW_BTN_X :
-							app_home();
+							if (time_wait()) {
+								app_home();
+							}
 							break;
 						case HW_BTN_L1 :
-						case HW_BTN_R1 :
+							if (!isMenuPressed && time_wait()) {
+								app_randomChoice();
+							}
+							break;
 						case HW_BTN_L2 :
+							if (!isMenuPressed && time_wait()) {
+								app_randomStory();
+							}
+							break;
+						case HW_BTN_R1 :
 						case HW_BTN_R2 :
 						case HW_BTN_SELECT :
 						case HW_BTN_SELECT_ALT :

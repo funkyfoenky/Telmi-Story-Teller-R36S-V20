@@ -72,6 +72,7 @@ static SDL_AudioDeviceID audio_dev;
 static int16_t *audio_ring;
 static size_t audio_ring_cap;
 static size_t audio_ring_len;
+static int16_t emu_pcm_tmp[8192];
 static unsigned joy[16];
 static int input_fds[INPUT_MAX];
 static int input_count;
@@ -255,20 +256,47 @@ static void emu_mixer_init(void)
 	free(ids);
 }
 
+static int emu_ui_to_internal(int volume)
+{
+	int mapped;
+	if (volume <= 0)
+		return 0;
+	if (volume >= 25)
+		return 25;
+	if (volume <= 13)
+		mapped = (volume * 18) / 13;
+	else
+		mapped = 18 + ((volume - 13) * 7) / 12;
+	if (mapped < 1)
+		mapped = 1;
+	if (mapped > 25)
+		mapped = 25;
+	return mapped;
+}
+
 static int emu_volume_to_hw(int volume)
 {
 	int hw;
-	if (volume <= 0)
+	int v = emu_ui_to_internal(volume);
+	if (v <= 0)
 		return 0;
-	if (volume <= 12)
-		hw = (volume * 204) / 12;
-	else
-		hw = 204 + ((volume - 12) * (255 - 204)) / (25 - 12);
+	hw = 40 + (v * (185 - 40)) / 25;
 	if (hw < 40)
 		hw = 40;
-	if (hw > 255)
-		hw = 255;
+	if (hw > 185)
+		hw = 185;
 	return hw;
+}
+
+static int emu_pcm_gain(void)
+{
+	int g;
+	if (emu_volume <= 0)
+		return 0;
+	g = (emu_ui_to_internal(emu_volume) * 200) / 25;
+	if (g < 8)
+		g = 8;
+	return g;
 }
 
 static void emu_apply_volume(void)
@@ -550,15 +578,49 @@ static void video_refresh(const void *data, unsigned width, unsigned height, siz
 
 static void audio_sample(int16_t left, int16_t right)
 {
-	int16_t s[2] = { left, right };
-	if (audio_dev)
-		SDL_QueueAudio(audio_dev, s, sizeof(s));
+	int16_t in[2] = { left, right };
+	int16_t s[2];
+	int g, i, v;
+
+	if (!audio_dev)
+		return;
+	g = emu_pcm_gain();
+	for (i = 0; i < 2; i++) {
+		v = ((int)in[i] * g) >> 8;
+		if (v > 32767)
+			v = 32767;
+		else if (v < -32768)
+			v = -32768;
+		s[i] = (int16_t)v;
+	}
+	SDL_QueueAudio(audio_dev, s, sizeof(s));
 }
 
 static size_t audio_sample_batch(const int16_t *data, size_t frames)
 {
-	if (audio_dev && data && frames)
-		SDL_QueueAudio(audio_dev, data, (Uint32)(frames * 4));
+	size_t done = 0;
+	int g, i, v;
+	size_t n, ns;
+
+	if (!audio_dev || !data || !frames)
+		return frames;
+	g = emu_pcm_gain();
+	while (done < frames) {
+		n = frames - done;
+		if (n > 4096)
+			n = 4096;
+		ns = n * 2;
+		for (i = 0; i < (int)ns; i++) {
+			v = ((int)data[done * 2 + i] * g) >> 8;
+			if (v > 32767)
+				v = 32767;
+			else if (v < -32768)
+				v = -32768;
+			emu_pcm_tmp[i] = (int16_t)v;
+		}
+		SDL_QueueAudio(audio_dev, emu_pcm_tmp, (Uint32)(n * 4));
+		done += n;
+	}
 	return frames;
 }
 

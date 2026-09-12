@@ -1,13 +1,21 @@
 #!/bin/sh
 # Monte /boot (partition FAT visible sous Windows) pour logs de debug.
 
-case "$1" in
+	case "$1" in
 	start)
 		mkdir -p /boot
 		if ! mountpoint -q /boot; then
 			mount /boot 2>/dev/null || \
 				mount -t vfat /dev/mmcblk1p1 /boot 2>/dev/null || \
 				mount -t vfat /dev/mmcblk0p1 /boot 2>/dev/null || true
+		fi
+		# Panic boot precedent (ramoops) — toujours, si disponible
+		if [ -x /opt/telmi/bin/telmi-export-pstore.sh ]; then
+			/opt/telmi/bin/telmi-export-pstore.sh &
+		fi
+		# Panel-diag : MIPI actif, log early (parallel, n'empeche pas le boot)
+		if [ -f /boot/TELMI-PANEL-DIAG ] && [ -x /opt/telmi/bin/telmi-panel-diag.sh ]; then
+			/opt/telmi/bin/telmi-panel-diag.sh &
 		fi
 		;;
 	stop) ;;

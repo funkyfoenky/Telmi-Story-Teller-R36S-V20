@@ -302,7 +302,7 @@ double audio_getPosition(void) {
     return 0.0;
 }
 
-void audio_play_path(char *soundPath, double position) {
+void audio_play_path(char *soundPath, double position, bool askDuration) {
     pthread_mutex_lock(&durationThreadMutex);
     bool isThreadRunning = durationThreadRunning;
     pthread_mutex_unlock(&durationThreadMutex);
@@ -325,14 +325,16 @@ void audio_play_path(char *soundPath, double position) {
         Mix_PlayMusic(music, 1);
         Mix_SetMusicPosition(position);
 
-        pthread_mutex_lock(&durationThreadMutex);
-        strcpy(durationThreadPath, soundPath);
-        durationThreadRunning = true;
-        pthread_mutex_unlock(&durationThreadMutex);
-        if (pthread_create(&durationThread, NULL, audio_calculate_duration_thread, NULL) != 0) {
+        if (askDuration) {
             pthread_mutex_lock(&durationThreadMutex);
-            durationThreadRunning = false;
+            strcpy(durationThreadPath, soundPath);
+            durationThreadRunning = true;
             pthread_mutex_unlock(&durationThreadMutex);
+            if (pthread_create(&durationThread, NULL, audio_calculate_duration_thread, NULL) != 0) {
+                pthread_mutex_lock(&durationThreadMutex);
+                durationThreadRunning = false;
+                pthread_mutex_unlock(&durationThreadMutex);
+            }
         }
     } else {
         pthread_mutex_lock(&durationThreadMutex);
@@ -342,10 +344,10 @@ void audio_play_path(char *soundPath, double position) {
     }
 }
 
-void audio_play(const char *dir, const char *name, double position) {
+void audio_play(const char *dir, const char *name, double position, bool askDuration) {
     char soundPath[STR_MAX * 2];
     sprintf(soundPath, "%s%s", dir, name);
-    audio_play_path(soundPath, position);
+    audio_play_path(soundPath, position, askDuration);
 }
 
 void video_audio_init(void) {

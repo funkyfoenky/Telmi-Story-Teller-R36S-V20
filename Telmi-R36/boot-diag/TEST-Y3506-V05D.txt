@@ -1,0 +1,36 @@
+# Test Y3506 — y3506-v05d (DSI stock)
+
+Image : **0.6.7** (ou 0.6.6 + DTB copie manuelle)
+Bootdiag : **DESACTIVE** (pas de fichier TELMI-BOOT-DIAG)
+
+## Fichiers sur BOOT
+
+1. Copier `y3506-v05d.dtb` → **`rf3536k3ka.dtb`**
+2. `TELMI-REV.txt` = **y3506-v05d** (une ligne)
+3. `TELMI-AUDIO-PATH.txt` = **HP**
+4. Supprimer `TELMI-BOOT-DIAG` si present
+5. **Optionnel (image >= 0.6.8)** : `Enable-Panel-Diag.bat` pour logs panel
+
+## Boot
+
+- Ejecter, demarrer la console
+- Attendre **30-40 secondes**
+- NE PAS s'attendre a des logs utiles dans telmi-runtime.log
+
+## Noter
+
+| Question | Reponse |
+|----------|---------|
+| Debut ecran | batterie / backlight / image / logo Telmi / noir |
+| Extinction | apres combien de secondes ? |
+| Reste allume sans image ? | oui / non |
+
+## Ce que teste v05d
+
+- Bloc **DSI stock** (mipi_dphy + clock hs_clk)
+- PHY style stock (#clock-cells)
+- Panel stock complet (init DarkOS + enable-gpios gpio1.18)
+
+Si KO comme les autres → prochaine etape = noyau ou UART, plus DTB panel.
+
+Merci !

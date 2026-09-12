@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <limits.h>
@@ -22,7 +23,7 @@ struct telmi_emu_entry {
 };
 
 static const struct telmi_emu_entry telmi_emus[] = {
-	{ "gb",  TELMI_GB_BIN, NULL },
+	{ "gb",  TELMI_LR_BIN, "gambatte_libretro.so" },
 	{ "gbc", TELMI_LR_BIN, "gambatte_libretro.so" },
 	{ "gba", TELMI_LR_BIN, "mgba_libretro.so" },
 	{ "nes", TELMI_LR_BIN, "fceumm_libretro.so" },
@@ -43,8 +44,45 @@ static const struct telmi_emu_entry *telmi_find_emu(const char *console_id)
 	return NULL;
 }
 
+static int telmi_find_core(const char *so_name, char *out, size_t outsz)
+{
+	static const char *dirs[] = {
+		TELMI_CORES_DIR,
+		"/home/ark/.config/retroarch/cores",
+		"/opt/retroarch/cores",
+		"/usr/lib/aarch64-linux-gnu/libretro",
+		NULL
+	};
+	int i;
+
+	if (!so_name)
+		return -1;
+	for (i = 0; dirs[i]; i++) {
+		snprintf(out, outsz, "%s/%s", dirs[i], so_name);
+		if (access(out, R_OK) == 0)
+			return 0;
+	}
+	return -1;
+}
+
+static const char *telmi_find_retroarch(void)
+{
+	static const char *bins[] = {
+		"/usr/local/bin/retroarch",
+		"/usr/bin/retroarch",
+		"/opt/retroarch/bin/retroarch",
+		NULL
+	};
+	int i;
+	for (i = 0; bins[i]; i++) {
+		if (access(bins[i], X_OK) == 0)
+			return bins[i];
+	}
+	return NULL;
+}
+
 /**
- * Lance l'emu pour console_id + rom, puis re-exec storyTeller (kmsdrm).
+ * Lance l'emu pour console_id + rom, puis re-exec storyTeller.
  */
 static void telmi_launch_rom(const char *console_id, const char *rom_path)
 {
@@ -52,6 +90,8 @@ static void telmi_launch_rom(const char *console_id, const char *rom_path)
 	pid_t pid;
 	int status;
 	char core_path[PATH_MAX];
+	const char *ra;
+	int use_lr = 0;
 
 	if (!rom_path || !rom_path[0] || access(rom_path, R_OK) != 0) {
 		fprintf(stderr, "[telmi] ROM invalide : %s\n", rom_path ? rom_path : "(null)");
@@ -61,7 +101,6 @@ static void telmi_launch_rom(const char *console_id, const char *rom_path)
 
 	e = telmi_find_emu(console_id);
 	if (!e) {
-		/* Fallback extension */
 		size_t n = strlen(rom_path);
 		if (n >= 4 && strcasecmp(rom_path + n - 3, ".gb") == 0)
 			e = telmi_find_emu("gb");
@@ -88,22 +127,26 @@ static void telmi_launch_rom(const char *console_id, const char *rom_path)
 		return;
 	}
 
-	if (access(e->bin, X_OK) != 0) {
-		fprintf(stderr, "[telmi] emu manquant : %s\n", e->bin);
-		fflush(stderr);
-		return;
-	}
-
-	if (e->core_so) {
-		snprintf(core_path, sizeof(core_path), "%s/%s", TELMI_CORES_DIR, e->core_so);
+	if (e->core_so && telmi_find_core(e->core_so, core_path, sizeof(core_path)) != 0) {
+		if (strcmp(e->core_so, "snes9x2005_libretro.so") == 0)
+			telmi_find_core("snes9x_libretro.so", core_path, sizeof(core_path));
 		if (access(core_path, R_OK) != 0) {
-			fprintf(stderr, "[telmi] core manquant : %s\n", core_path);
+			fprintf(stderr, "[telmi] core manquant : %s\n", e->core_so);
 			fflush(stderr);
 			return;
 		}
 	}
 
-	fprintf(stderr, "[telmi] launch %s : %s\n", e->console_id, rom_path);
+	use_lr = (access(TELMI_LR_BIN, X_OK) == 0);
+	ra = telmi_find_retroarch();
+	if (!use_lr && !ra) {
+		fprintf(stderr, "[telmi] emu manquant (pas de telmi_lr ni retroarch)\n");
+		fflush(stderr);
+		return;
+	}
+
+	fprintf(stderr, "[telmi] launch %s : %s (via %s)\n", e->console_id, rom_path,
+		use_lr ? "telmi_lr" : "retroarch");
 	fflush(stderr);
 
 	audio_free_music();
@@ -111,10 +154,10 @@ static void telmi_launch_rom(const char *console_id, const char *rom_path)
 
 	pid = fork();
 	if (pid == 0) {
-		if (e->core_so)
-			execl(e->bin, "telmi_lr", core_path, rom_path, e->console_id, (char *)NULL);
+		if (use_lr)
+			execl(TELMI_LR_BIN, "telmi_lr", core_path, rom_path, e->console_id, (char *)NULL);
 		else
-			execl(e->bin, "gambatte_sdl", rom_path, e->console_id, (char *)NULL);
+			execl(ra, "retroarch", "-L", core_path, rom_path, (char *)NULL);
 		_exit(127);
 	}
 	if (pid > 0)

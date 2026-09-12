@@ -24,7 +24,7 @@ rm -rf "$ASSETS"/*
 mkdir -p "$ASSETS/res" "$ASSETS/config"
 rsync -a "$CACHE/extract/.tmp_update/res/" "$ASSETS/res/" 2>/dev/null || true
 rsync -a "$CACHE/extract/.tmp_update/config/" "$ASSETS/config/" 2>/dev/null || true
-rsync -a "$TELMI_R36/../Telmi-story-teller-1.10.1/static/configs/" "$ASSETS/" 2>/dev/null || true
+rsync -a "$TELMI_R36/Telmi-story-teller-1.10.1/static/configs/" "$ASSETS/" 2>/dev/null || true
 
 echo "Assets dans $ASSETS"
 ls -la "$ASSETS/res" 2>/dev/null | head -15

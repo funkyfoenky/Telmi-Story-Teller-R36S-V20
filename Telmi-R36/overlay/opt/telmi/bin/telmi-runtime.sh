@@ -30,7 +30,7 @@ ensure_content_mounted() {
 			# S06 a deja tente : retry plus long sur V30 (slot SD gauche lent)
 			_rev=$(get_telmi_rev)
 			case "$_rev" in
-				v30*|V30*) _wait=12 ;;
+				v30*|V30*|y3506*|Y3506*) _wait=12 ;;
 				*) _wait=3 ;;
 			esac
 			TELMI_WAIT_MAX="$_wait" "$TELMI_MOUNT" setup || log "WARN : montage contenu echoue"
@@ -209,7 +209,7 @@ main() {
 	[ -z "$_rev" ] && [ -f /boot/TELMI-PROFILE.txt ] && _rev=$(tr -d '[:space:]' </boot/TELMI-PROFILE.txt)
 	[ -z "$_rev" ] && [ -f /opt/telmi/telmiVersion/profile.txt ] && _rev=$(tr -d '[:space:]' </opt/telmi/telmiVersion/profile.txt)
 	case "$_rev" in
-		v30*|*panel4*) _play_path=HP ;;
+		v30*|*panel4*|y3506*) _play_path=HP ;;
 	esac
 	[ -f /boot/TELMI-AUDIO-PATH.txt ] && _ap=$(tr -d '[:space:]' </boot/TELMI-AUDIO-PATH.txt) && \
 		case "$_ap" in SPK|HP|SPK_HP) _play_path="$_ap" ;; esac

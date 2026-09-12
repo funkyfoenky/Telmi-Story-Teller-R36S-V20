@@ -42,7 +42,7 @@ define TELMI_R36S_BUILD_CMDS
 		CC=$(TARGET_CC) \
 		CXX=$(TARGET_CXX) \
 		STRIP=$(TARGET_STRIP) \
-		TELMI_SRC=$($(PKG)_SITE)/../Telmi-story-teller-1.10.1 \
+		TELMI_SRC=$($(PKG)_SITE)/Telmi-story-teller-1.10.1 \
 		HOST_DIR=$(HOST_DIR) \
 		CORE_CACHE=/home/funkyfoenky/telmi-emu-cores \
 		EXTRA_CFLAGS="$(TARGET_CFLAGS) -I$(STAGING_DIR)/usr/include/SDL2" \
@@ -71,7 +71,7 @@ define TELMI_R36S_INSTALL_TARGET_CMDS
 	fi
 	mkdir -p $(TARGET_DIR)/telmi $(TARGET_DIR)/mnt $(TARGET_DIR)/opt/telmi/telmiVersion
 	ln -sf /telmi $(TARGET_DIR)/mnt/SDCARD
-	echo -n "v1.10.1" > $(TARGET_DIR)/opt/telmi/telmiVersion/version.txt
+	echo -n "v1.10.3" > $(TARGET_DIR)/opt/telmi/telmiVersion/version.txt
 	echo -n "$(or $(TELMI_PROFILE),v20)" > $(TARGET_DIR)/opt/telmi/telmiVersion/profile.txt
 	chmod +x $(TARGET_DIR)/opt/telmi/bin/*
 	# Evite le crash panfrost sur noyau vendor 5.10 : ne garder que swrast

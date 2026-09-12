@@ -139,7 +139,7 @@ default_wait_max() {
 	_rev=""
 	[ -f /boot/TELMI-REV.txt ] && _rev=$(tr -d '\r\n ' < /boot/TELMI-REV.txt)
 	case "$_rev" in
-		v30*|V30*) echo 20 ;;
+		v30*|V30*|y3506*|Y3506*) echo 20 ;;
 		*) echo 8 ;;
 	esac
 }
@@ -393,7 +393,7 @@ EOF
 		cat > /telmi/autorun.inf <<'EOF'
 [autorun]
 icon  = .tmp_update/res/sdcard.ico
-label = TelmiOS-v1.10.1
+label = TelmiOS-v1.10.3
 EOF
 	fi
 }

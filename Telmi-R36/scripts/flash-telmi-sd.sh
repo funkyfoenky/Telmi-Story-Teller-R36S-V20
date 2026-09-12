@@ -1,33 +1,30 @@
 #!/usr/bin/env bash
-# Flash TelmiOS sur une carte SD reelle : BOOT + root fixes, TELMI = tout le reste.
+# Flash TelmiOS sur une carte SD — Linux et macOS (équivalent de flash-telmi-sd-win.ps1).
 #
-# Usage (WSL, root) :
-#   sudo bash scripts/flash-telmi-sd.sh /dev/sdX --from-image
-#   sudo bash scripts/flash-telmi-sd.sh /dev/sdX --expand
-#   sudo bash scripts/flash-telmi-sd.sh /dev/sdX --yes
+# Usage :
+#   sudo bash scripts/flash-telmi-sd.sh
+#   sudo bash scripts/flash-telmi-sd.sh /dev/sdX --from-image --yes
+#   sudo bash scripts/flash-telmi-sd.sh disk4 --os-only
+#   sudo bash scripts/flash-telmi-sd.sh /dev/disk4 --expand
 #
 # Modes :
-#   --from-image / --latest
-#             Ecrit l'image TelmiOS LATEST (toutes nouveautes), puis agrandit TELMI
-#   (defaut)  Formate la SD, ecrit BOOT + rootfs.tar (+ sync bins LATEST), TELMI = reste
-#   --expand  Apres Rufus d'une .img compacte : recree seulement p3 TELMI
-#             jusqu'a la fin du disque (sans toucher BOOT/root)
+#   --from-image   (défaut) écrit LATEST.img puis recrée TELMI sur tout l'espace restant
+#   --os-only      flash OS sans expand p3 (dual-SD : contenu sur slot gauche)
+#   --expand       recrée seulement p3 TELMI (après Balena Etcher / flash partiel)
+#   --full         Linux/WSL : reconstruit depuis rootfs.tar (développeurs)
 #
-# Sous WSL2, monter d'abord le lecteur (PowerShell admin) :
-#   wsl --mount \\.\PHYSICALDRIVEn --bare
-#   Puis lsblk pour trouver /dev/sdX
+# Dépendances :
+#   Linux : gdisk (sgdisk), dosfstools, util-linux
+#   macOS : brew install gptfdisk   (newfs_msdos est natif)
 #
 set -euo pipefail
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TELMI_R36="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_DIR="$(cd "$TELMI_R36/.." && pwd)"
-OUTPUT_DIR="$TELMI_R36/output"
-CONTENT_DIR="$TELMI_R36/content"
+# shellcheck source=telmi-sd-common.sh
+. "$SCRIPT_DIR/telmi-sd-common.sh"
+
 VERSION="$(tr -d '[:space:]' < "$TELMI_R36/VERSION" 2>/dev/null || echo "0.0.0")"
 BUILD_ID="$(date '+%Y%m%d-%H%M')"
-
 ROOTFS_TAR="$OUTPUT_DIR/rootfs.tar"
 ROOT_PART_SIZE_MB="${ROOT_PART_SIZE_MB:-1536}"
 BOOT_RESERVED_SECTORS=32768
@@ -35,28 +32,35 @@ BOOT_PART_SECTORS=1024000
 ROOT_PART_START=1056768
 
 DEV=""
-MODE="full"   # full | expand | from-image
+MODE="from-image"
 AUTO_YES=0
 WORKING_IMG=""
 
 usage() {
-	sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
 	exit "${1:-0}"
 }
+
+for _a in "$@"; do
+	case "$_a" in -h|--help) usage 0 ;; esac
+done
+telmi_need_root "$@"
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		-h|--help) usage 0 ;;
 		--expand) MODE="expand"; shift ;;
 		--from-image|--latest) MODE="from-image"; shift ;;
+		--os-only) MODE="os-only"; shift ;;
+		--full) MODE="full"; shift ;;
 		--yes|-y) AUTO_YES=1; shift ;;
 		--image)
 			WORKING_IMG="${2:-}"
 			[[ -n "$WORKING_IMG" ]] || { echo "ERREUR : --image sans chemin"; exit 1; }
 			shift 2
 			;;
-		/dev/*)
-			DEV="$1"
+		/dev/*|disk[0-9]*|sd[a-z]*|mmcblk*|nvme*)
+			DEV="$(telmi_normalize_dev "$1")"
 			shift
 			;;
 		*)
@@ -66,42 +70,52 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
-[[ $EUID -eq 0 ]] || { echo "ERREUR : root requis (wsl -u root ou sudo)"; exit 1; }
-
-if [[ -z "$DEV" ]]; then
-	echo "Disques disponibles :"
-	lsblk -o NAME,SIZE,TYPE,TRAN,MODEL,MOUNTPOINTS
+pick_disk() {
+	local sel n
+	telmi_list_removable
+	if [[ -n "$DEV" ]]; then
+		DEV="$(telmi_normalize_dev "$DEV")"
+		telmi_dev_exists "$DEV" || { echo "ERREUR : $DEV introuvable"; exit 1; }
+		return 0
+	fi
 	echo ""
-	echo "Usage : $0 /dev/sdX [--from-image|--expand] [--yes]"
-	exit 1
-fi
+	telmi_print_disks || exit 1
+	echo ""
+	printf "Numéro dans la liste (ou Q) : "
+	read -r sel
+	sel="$(printf '%s' "$sel" | tr -d '[:space:]')"
+	case "$sel" in
+		Q|q) echo "Annulé."; exit 0 ;;
+		[1-9]|[1-9][0-9]) ;;
+		*) echo "ERREUR : choix invalide"; exit 1 ;;
+	esac
+	n="$sel"
+	if [[ "$n" -lt 1 || "$n" -gt $TELMI_DISK_COUNT ]]; then
+		echo "ERREUR : choix invalide"
+		exit 1
+	fi
+	DEV="${TELMI_DEV_LIST[$n]}"
+}
 
-[[ -b "$DEV" ]] || { echo "ERREUR : $DEV n'est pas un block device"; exit 1; }
+pick_disk
+telmi_assert_whole_disk
 
-# Securite : refuser les disques systeme evidents
-DEV_BASE="$(basename "$DEV")"
-if [[ "$DEV_BASE" =~ ^(sda|nvme0n1|mmcblk0)$ ]] && [[ "${FORCE_SYSTEM_DISK:-0}" != "1" ]]; then
-	echo "ERREUR : $DEV ressemble a un disque systeme."
-	echo "         Si c'est bien la SD : FORCE_SYSTEM_DISK=1 $0 $DEV ..."
-	exit 1
-fi
-
-# Demontage si monte
-if lsblk -nro MOUNTPOINTS "$DEV" 2>/dev/null | grep -q '[^[:space:]]'; then
-	echo "==> Demontage des partitions de $DEV..."
-	for p in $(lsblk -nrpo NAME "$DEV" | tail -n +2); do
-		umount "$p" 2>/dev/null || umount -l "$p" 2>/dev/null || true
-	done
-fi
-
-DISK_BYTES="$(blockdev --getsize64 "$DEV")"
-DISK_SECTORS="$(blockdev --getsz "$DEV")"
+DISK_BYTES="$(telmi_disk_bytes "$DEV")"
+DISK_SECTORS=$((DISK_BYTES / 512))
 DISK_GB="$(awk -v b="$DISK_BYTES" 'BEGIN { printf "%.1f", b/1000/1000/1000 }')"
 DISK_GIB="$(awk -v b="$DISK_BYTES" 'BEGIN { printf "%.2f", b/1024/1024/1024 }')"
 
 if [[ "$DISK_BYTES" -lt $((3 * 1024 * 1024 * 1024)) ]]; then
 	echo "ERREUR : disque trop petit ($DISK_GIB GiB) — minimum ~3 GiB"
 	exit 1
+fi
+
+if telmi_is_system_disk "$DEV"; then
+	echo "ERREUR : $DEV ressemble à un disque système."
+	echo "         Si c'est bien la SD : FORCE_SYSTEM_DISK=1 $0 $DEV ..."
+	if [[ "${FORCE_SYSTEM_DISK:-0}" != "1" ]]; then
+		exit 1
+	fi
 fi
 
 ROOT_PART_SECTORS=$((ROOT_PART_SIZE_MB * 1024 * 1024 / 512))
@@ -111,95 +125,82 @@ TELMI_PART_END=$((DISK_SECTORS - 34))
 BOOT_PART_END=$((BOOT_RESERVED_SECTORS + BOOT_PART_SECTORS - 1))
 TELMI_SIZE_MB=$(( (TELMI_PART_END - TELMI_PART_START + 1) * 512 / 1024 / 1024 ))
 
-if [[ $TELMI_PART_END -le $TELMI_PART_START ]]; then
-	echo "ERREUR : pas assez d'espace pour TELMI"
-	exit 1
-fi
-
+echo ""
 echo "============================================================"
-echo " TelmiOS flash SD"
+echo " TelmiOS flash SD ($TELMI_OS)"
 echo " Device     : $DEV"
-echo " Capacite   : ${DISK_GB} Go (~${DISK_GIB} GiB)"
+echo " Capacité   : ${DISK_GB} Go (~${DISK_GIB} GiB)"
 echo " Mode       : $MODE"
 echo " Version    : $VERSION ($BUILD_ID)"
-echo " p1 BOOT    : 500 Mo"
-echo " p2 root    : ${ROOT_PART_SIZE_MB} Mo"
-echo " p3 TELMI   : ~${TELMI_SIZE_MB} Mo  (tout le reste)"
 echo "============================================================"
+echo " ATTENTION : le contenu du disque sera modifié."
 
 if [[ "$AUTO_YES" != "1" ]]; then
 	echo ""
-	echo "ATTENTION : donnees sur $DEV seront modifiees (mode $MODE)."
-	read -r -p "Tapez le chemin du device pour confirmer ($DEV) : " confirm
-	[[ "$confirm" == "$DEV" ]] || { echo "Annule."; exit 1; }
+	printf "Tapez FLASH pour confirmer : "
+	read -r confirm
+	[[ "$confirm" = "FLASH" ]] || { echo "Annulé."; exit 0; }
 fi
 
-resolve_working_img() {
-	if [[ -n "$WORKING_IMG" && -f "$WORKING_IMG" ]]; then
-		return 0
+flash_from_image() {
+	local img img_bytes
+	img="$(resolve_latest_telmi_img)" || {
+		echo "ERREUR : aucune image telmi-r36-*.img dans $OUTPUT_DIR"
+		echo "         Placez LATEST.txt + l'image, ou passez --image /chemin.img"
+		exit 1
+	}
+	WORKING_IMG="$img"
+	img_bytes="$(telmi_file_size "$WORKING_IMG")"
+	if [[ "$DISK_BYTES" -lt "$img_bytes" ]]; then
+		echo "ERREUR : SD trop petite pour $(basename "$WORKING_IMG") ($(telmi_fmt_gb "$img_bytes"))"
+		exit 1
 	fi
-	# Prefer image matching VERSION, then LATEST.txt, then newest .img
-	if [[ -f "$OUTPUT_DIR/telmi-r36-v20-${VERSION}.img" ]]; then
-		WORKING_IMG="$OUTPUT_DIR/telmi-r36-v20-${VERSION}.img"
-		return 0
-	fi
-	if [[ -f "$OUTPUT_DIR/LATEST.txt" ]]; then
-		local latest_name
-		latest_name="$(tr -d '[:space:]' < "$OUTPUT_DIR/LATEST.txt")"
-		if [[ -n "$latest_name" && -f "$OUTPUT_DIR/$latest_name" ]]; then
-			WORKING_IMG="$OUTPUT_DIR/$latest_name"
-			return 0
-		fi
-	fi
-	local latest
-	latest="$(ls -1t "$OUTPUT_DIR"/telmi-r36-v20-*.img 2>/dev/null | head -1 || true)"
-	if [[ -n "$latest" && -f "$latest" ]]; then
-		WORKING_IMG="$latest"
-		return 0
-	fi
-	# Fallback BOOT-only sources (mode full)
-	for cand in \
-		"$OUTPUT_DIR/Base.img" \
-		"$PROJECT_DIR/R36S-Clone_V20_2025-05-08.img" \
-		"$PROJECT_DIR/output/r36s-v20-helloworld-light.img"
-	do
-		if [[ -f "$cand" ]]; then
-			WORKING_IMG="$cand"
-			return 0
-		fi
-	done
-	return 1
+	echo "==> Source image TelmiOS : $WORKING_IMG"
+	telmi_write_image "$WORKING_IMG" 
+	telmi_repair_gpt
 }
 
-resolve_latest_telmi_img() {
-	# Strict : image TelmiOS seulement (pas Base.img)
-	if [[ -f "$OUTPUT_DIR/telmi-r36-v20-${VERSION}.img" ]]; then
-		echo "$OUTPUT_DIR/telmi-r36-v20-${VERSION}.img"
-		return 0
+write_boot_extlinux() {
+	local part="$1"
+	local mnt
+	mnt="$(mktemp -d /tmp/telmi-boot-XXXXXX)"
+	telmi_mount_fat "$part" "$mnt"
+	mkdir -p "$mnt/extlinux"
+	cat > "$mnt/extlinux/extlinux.conf" <<'EOF'
+LABEL ArkOS
+  LINUX /Image
+  FDT /rf3536k3ka.dtb
+  INITRD /uInitrd
+  APPEND earlyprintk console=ttyFIQ0 rw root=/dev/mmcblk1p2 rootfstype=ext4 loglevel=7 init=/sbin/init rootwait rootdelay=2 fsck.repair=yes fbcon=rotate:0 quiet splash plymouth.ignore-serial-consoles consoleblank=0
+
+LABEL ArkOS-mmc0
+  LINUX /Image
+  FDT /rf3536k3ka.dtb
+  INITRD /uInitrd
+  APPEND earlyprintk console=ttyFIQ0 rw root=/dev/mmcblk0p2 rootfstype=ext4 loglevel=7 init=/sbin/init rootwait rootdelay=2 fsck.repair=yes fbcon=rotate:0 quiet splash plymouth.ignore-serial-consoles consoleblank=0
+EOF
+	printf '%s' "${VERSION}" > "$mnt/TELMI-VERSION.txt"
+	cat > "$mnt/TELMI-README.txt" <<EOF
+TelmiOS R36S — partition BOOT
+Version : ${VERSION}
+Build   : ${BUILD_ID}
+Flash   : flash-telmi-sd.sh (${MODE})
+EOF
+	sync
+	if [[ "$TELMI_OS" = "macos" ]]; then
+		diskutil unmount "$mnt" >/dev/null 2>&1 || umount "$mnt" 2>/dev/null || true
+	else
+		umount "$mnt"
 	fi
-	if [[ -f "$OUTPUT_DIR/LATEST.txt" ]]; then
-		local n
-		n="$(tr -d '[:space:]' < "$OUTPUT_DIR/LATEST.txt")"
-		if [[ -n "$n" && -f "$OUTPUT_DIR/$n" ]]; then
-			echo "$OUTPUT_DIR/$n"
-			return 0
-		fi
-	fi
-	local latest
-	latest="$(ls -1t "$OUTPUT_DIR"/telmi-r36-v20-*.img 2>/dev/null | head -1 || true)"
-	[[ -n "$latest" && -f "$latest" ]] || return 1
-	echo "$latest"
+	rmdir "$mnt" 2>/dev/null || true
 }
 
-# Apres rootfs.tar : injecte opt/telmi depuis l'image LATEST (binaires + cores a jour)
+# --- mode développeur Linux (rootfs.tar) ---
 sync_telmi_bins_from_latest_img() {
 	local root_mnt="$1"
-	local img=""
-	local tmp root_img mnt
-	local tools_dir="$TELMI_R36/.tools"
-	local fuse2fs=""
-	local skip count
-
+	local img="" tmp root_img mnt tools_dir fuse2fs skip count p2_start p2_end
+	tools_dir="$TELMI_R36/.tools"
+	fuse2fs=""
 	img="$(resolve_latest_telmi_img 2>/dev/null || true)"
 	[[ -n "$img" && -f "$img" ]] || return 0
 
@@ -213,11 +214,9 @@ sync_telmi_bins_from_latest_img() {
 		return 0
 	fi
 
-	# Taille reelle de p2 dans l'image (peut differer du layout SD)
 	skip="$ROOT_PART_START"
 	count="$ROOT_PART_SECTORS"
 	if command -v parted >/dev/null 2>&1; then
-		local p2_start p2_end
 		p2_start="$(parted -s "$img" unit s print 2>/dev/null | awk '/^ 2 / { gsub(/s/,"",$2); print $2; exit }')"
 		p2_end="$(parted -s "$img" unit s print 2>/dev/null | awk '/^ 2 / { gsub(/s/,"",$3); print $3; exit }')"
 		if [[ -n "${p2_start:-}" && -n "${p2_end:-}" ]]; then
@@ -245,168 +244,40 @@ sync_telmi_bins_from_latest_img() {
 	rm -rf "$tmp"
 }
 
-flash_from_latest_image() {
-	local img
-	img="$(resolve_latest_telmi_img)" || {
-		echo "ERREUR : aucune image telmi-r36-v20-*.img dans $OUTPUT_DIR"
-		echo "         Lancez assemble / quick-update d'abord."
-		exit 1
-	}
-	WORKING_IMG="$img"
-	local img_bytes img_sectors
-	img_bytes="$(stat -c%s "$WORKING_IMG")"
-	img_sectors=$((img_bytes / 512))
-	if [[ "$DISK_SECTORS" -lt "$img_sectors" ]]; then
-		echo "ERREUR : SD trop petite pour $(basename "$WORKING_IMG")"
-		exit 1
-	fi
-
-	echo "==> Source image TelmiOS : $WORKING_IMG"
-	echo "==> Ecriture image complete sur $DEV..."
-	dd if="$WORKING_IMG" of="$DEV" bs=4M conv=fsync status=progress
-	sync
-	# Recree TELMI sur tout l'espace restant + contenu Games a jour
-	expand_telmi_partition
-	write_boot_extlinux "$(part_path 1)"
-}
-
-seed_telmi_content() {
-	local part="$1"
-	local d
-	mkdir -p /mnt/telmi-flash-content
-	mount "$part" /mnt/telmi-flash-content
-	mkdir -p "$CONTENT_DIR/Stories" "$CONTENT_DIR/Music" \
-		"$CONTENT_DIR/Games" "$CONTENT_DIR/Saves/Stories" "$CONTENT_DIR/logs" \
-		"$CONTENT_DIR/Games/gb" "$CONTENT_DIR/Games/gbc" "$CONTENT_DIR/Games/gba" \
-		"$CONTENT_DIR/Games/nes" "$CONTENT_DIR/Games/md" "$CONTENT_DIR/Games/snes" \
-		"$CONTENT_DIR/Games/psx" "$CONTENT_DIR/Saves" "$CONTENT_DIR/config"
-	# Sentinelles : dossiers FAT vides invisibles sous Windows sinon
-	for d in gb gbc gba nes md snes psx; do
-		touch "$CONTENT_DIR/Games/$d/.keep"
-	done
-	rsync -rl --no-owner --no-group --no-perms --exclude='.gitkeep' --exclude='.git' --exclude='.keep' \
-		"$CONTENT_DIR/" /mnt/telmi-flash-content/
-	for d in gb gbc gba nes md snes psx; do
-		mkdir -p "/mnt/telmi-flash-content/Games/$d"
-		touch "/mnt/telmi-flash-content/Games/$d/.keep"
-	done
-	if [[ -f "$TELMI_R36/assets/res/miyoo283_system.json" && ! -f /mnt/telmi-flash-content/system.json ]]; then
-		cp -f "$TELMI_R36/assets/res/miyoo283_system.json" /mnt/telmi-flash-content/system.json
-	fi
-	cat > /mnt/telmi-flash-content/README.txt <<'EOF'
-TelmiOS — partition TELMI (FAT32)
-
-Stories/<NomHistoire>/
-Music/*.mp3
-Games/
-  gb/ gbc/ gba/ nes/ md/ snes/ psx/
-Saves/          (BIOS PSX : scph5501.bin etc.)
-system.json
-
-Montee sur la console a /telmi (= /mnt/SDCARD).
-Select x3 sur le carrousel = mode jeux.
-EOF
-	if [[ -f "$CONTENT_DIR/Games/README.txt" ]]; then
-		mkdir -p /mnt/telmi-flash-content/Games
-		cp -f "$CONTENT_DIR/Games/README.txt" /mnt/telmi-flash-content/Games/README.txt
-	fi
-	sync
-	umount /mnt/telmi-flash-content
-}
-
-write_boot_extlinux() {
-	local part="$1"
-	mkdir -p /mnt/telmi-flash-boot
-	mount "$part" /mnt/telmi-flash-boot
-	mkdir -p /mnt/telmi-flash-boot/extlinux
-	cat > /mnt/telmi-flash-boot/extlinux/extlinux.conf <<'EOF'
-LABEL ArkOS
-  LINUX /Image
-  FDT /rf3536k3ka.dtb
-  INITRD /uInitrd
-  APPEND earlyprintk console=ttyFIQ0 rw root=/dev/mmcblk1p2 rootfstype=ext4 loglevel=7 init=/sbin/init rootwait rootdelay=2 fsck.repair=yes fbcon=rotate:0 quiet splash plymouth.ignore-serial-consoles consoleblank=0
-
-LABEL ArkOS-mmc0
-  LINUX /Image
-  FDT /rf3536k3ka.dtb
-  INITRD /uInitrd
-  APPEND earlyprintk console=ttyFIQ0 rw root=/dev/mmcblk0p2 rootfstype=ext4 loglevel=7 init=/sbin/init rootwait rootdelay=2 fsck.repair=yes fbcon=rotate:0 quiet splash plymouth.ignore-serial-consoles consoleblank=0
-EOF
-	echo -n "${VERSION}" > /mnt/telmi-flash-boot/TELMI-VERSION.txt
-	cat > /mnt/telmi-flash-boot/TELMI-README.txt <<EOF
-TelmiOS R36S — partition BOOT (stock V20)
-Version : ${VERSION}
-Build   : ${BUILD_ID}
-Flash   : flash-telmi-sd.sh (${MODE})
-EOF
-	sync
-	umount /mnt/telmi-flash-boot
-}
-
-part_path() {
-	local n="$1"
-	if [[ "$DEV" =~ [0-9]$ ]]; then
-		echo "${DEV}p${n}"
-	else
-		echo "${DEV}${n}"
-	fi
-}
-
-wait_parts() {
-	partprobe "$DEV" 2>/dev/null || true
-	sleep 1
-	local i
-	for i in 1 2 3 4 5 6 7 8 9 10; do
-		[[ -b "$(part_path 1)" && -b "$(part_path 2)" && -b "$(part_path 3)" ]] && return 0
-		sleep 0.5
-		partprobe "$DEV" 2>/dev/null || true
-	done
-	echo "ERREUR : partitions introuvables apres partitionnement"
-	lsblk "$DEV"
-	exit 1
-}
-
-expand_telmi_partition() {
-	echo "==> Correction GPT secondaire + recreation p3 TELMI..."
-	if command -v sgdisk >/dev/null 2>&1; then
-		sgdisk -e "$DEV" 2>/dev/null || true
-	fi
-	local p2_end
-	p2_end="$(parted -s "$DEV" unit s print 2>/dev/null | awk '/^ 2 / { gsub(/s/,"",$3); print $3; exit }')"
-	if [[ -n "${p2_end:-}" ]]; then
-		ROOT_PART_END="$p2_end"
-		TELMI_PART_START=$((ROOT_PART_END + 1))
-		TELMI_SIZE_MB=$(( (TELMI_PART_END - TELMI_PART_START + 1) * 512 / 1024 / 1024 ))
-	fi
-	parted -s "$DEV" rm 3 2>/dev/null || true
-	for _p in 5 4; do
-		parted -s "$DEV" rm "$_p" 2>/dev/null || true
-	done
-	parted -s "$DEV" mkpart primary fat32 "${TELMI_PART_START}s" "${TELMI_PART_END}s"
-	if command -v sgdisk >/dev/null 2>&1; then
-		sgdisk -c 3:TELMI "$DEV" 2>/dev/null || true
-	fi
-	wait_parts
-	echo "==> Format TELMI FAT32 (~${TELMI_SIZE_MB} Mo)..."
-	mkfs.vfat -F 32 -n TELMI "$(part_path 3)"
-	seed_telmi_content "$(part_path 3)"
-}
-
 flash_full() {
-	resolve_working_img || { echo "ERREUR : pas d'image BOOT (Base.img / clone V20)"; exit 1; }
+	local cand latest
+	if [[ "$TELMI_OS" != "linux" ]]; then
+		echo "ERREUR : --full (rootfs.tar) est réservé à Linux / WSL."
+		echo "         Sur macOS, utilisez --from-image avec une .img déjà assemblée."
+		exit 1
+	fi
+	if [[ -z "$WORKING_IMG" || ! -f "$WORKING_IMG" ]]; then
+		for cand in \
+			"$OUTPUT_DIR/Base.img" \
+			"$TELMI_R36/../R36S-Clone_V20_2025-05-08.img" \
+			"$TELMI_R36/../output/r36s-v20-helloworld-light.img"
+		do
+			if [[ -f "$cand" ]]; then
+				WORKING_IMG="$cand"
+				break
+			fi
+		done
+	fi
+	[[ -n "$WORKING_IMG" && -f "$WORKING_IMG" ]] || { echo "ERREUR : pas d'image BOOT (Base.img / clone V20)"; exit 1; }
 	[[ -f "$ROOTFS_TAR" ]] || { echo "ERREUR : $ROOTFS_TAR manquant — lancez build-telmi-rootfs.sh"; exit 1; }
+	command -v mkfs.ext4 >/dev/null 2>&1 || { echo "ERREUR : mkfs.ext4 requis (e2fsprogs)"; exit 1; }
+	command -v parted >/dev/null 2>&1 || { echo "ERREUR : parted requis"; exit 1; }
 
 	echo "==> Source BOOT : $WORKING_IMG"
 	echo "==> Rootfs      : $ROOTFS_TAR"
+	telmi_umount_all
 
-	# Meme ordre que assemble-telmi-v20.sh : amorce stock d'abord, puis GPT adaptee
-	echo "==> Ecriture amorce / GPT stock (16 Mo)..."
+	echo "==> Écriture amorce / GPT stock (16 Mo)..."
 	dd if="$WORKING_IMG" of="$DEV" bs=512 count="$BOOT_RESERVED_SECTORS" conv=fsync status=progress
 
 	echo "==> GPT : corrige taille disque + p2 root + p3 TELMI (reste)..."
-	if command -v sgdisk >/dev/null 2>&1; then
-		sgdisk -e "$DEV" 2>/dev/null || true
-	fi
+	telmi_need_sgdisk
+	sgdisk -e "$DEV" 2>/dev/null || true
 	for _p in 5 4 3 2; do
 		parted -s "$DEV" rm "$_p" 2>/dev/null || true
 	done
@@ -418,10 +289,8 @@ flash_full() {
 	parted -s "$DEV" mkpart primary fat32 "${TELMI_PART_START}s" "${TELMI_PART_END}s"
 	parted -s "$DEV" set 1 boot on
 	parted -s "$DEV" set 1 esp off 2>/dev/null || true
-	if command -v sgdisk >/dev/null 2>&1; then
-		sgdisk -t 1:0C00 -A 1:set:2 -c 1:boot -c 2:rootfs -c 3:TELMI "$DEV" 2>/dev/null || true
-	fi
-	wait_parts
+	sgdisk -t 1:0C00 -A 1:set:2 -c 1:boot -c 2:rootfs -c 3:TELMI "$DEV" 2>/dev/null || true
+	wait_parts 3
 
 	echo "==> Copie partition BOOT stock (500 Mo)..."
 	dd if="$WORKING_IMG" of="$DEV" bs=512 skip="$BOOT_RESERVED_SECTORS" \
@@ -447,30 +316,46 @@ flash_full() {
 	umount /mnt/telmi-flash-root
 
 	write_boot_extlinux "$(part_path 1)"
-
 	echo "==> Format TELMI FAT32 (~${TELMI_SIZE_MB} Mo)..."
-	mkfs.vfat -F 32 -n TELMI "$(part_path 3)"
-	seed_telmi_content "$(part_path 3)"
+	telmi_format_fat32 "$(part_path 3)" TELMI
+	seed_telmi_content "$(part_path 3)" 0
 }
 
 case "$MODE" in
-	expand) expand_telmi_partition ;;
-	from-image) flash_from_latest_image ;;
-	full) flash_full ;;
-	*) echo "Mode inconnu"; exit 1 ;;
+	from-image)
+		flash_from_image
+		expand_telmi_partition
+		;;
+	os-only)
+		flash_from_image
+		echo " Mode os-only : pas d'expand p3 (contenu via Prepare-Content-SD)"
+		;;
+	expand)
+		telmi_umount_all
+		expand_telmi_partition
+		;;
+	full)
+		flash_full
+		;;
+	*)
+		echo "Mode inconnu : $MODE"
+		exit 1
+		;;
 esac
 
 sync
 echo ""
 echo "============================================================"
-echo " OK — $DEV pret  (TelmiOS $VERSION)"
-echo " p1 BOOT  500 Mo"
-echo " p2 root  ${ROOT_PART_SIZE_MB} Mo"
-echo " p3 TELMI ~${TELMI_SIZE_MB} Mo (espace restant utilise)"
-echo ""
-echo " Contenu TELMI : Stories / Music / Games"
-echo "   Games/gb gbc gba nes md snes psx"
-echo "   Saves/   (BIOS PSX si besoin)"
-echo " Branchez la SD (slot droite TF-OS) et demarrez."
+if [[ "$MODE" = "os-only" ]]; then
+	echo " Flash OS OK (dual-SD) — TelmiOS $VERSION"
+	echo " Ensuite : Prepare-Content-SD.sh (slot gauche) + Select-Telmi-REV.sh"
+else
+	echo " Flash/expand OK — $DEV prêt (TelmiOS $VERSION)"
+	echo " Ensuite : Select-Telmi-REV.sh  (V20 / V30 Panel4 / Y3506)"
+fi
 echo "============================================================"
-lsblk -o NAME,SIZE,FSTYPE,LABEL "$DEV"
+if [[ "$TELMI_OS" = "macos" ]]; then
+	diskutil list "$DEV"
+else
+	lsblk -o NAME,SIZE,FSTYPE,LABEL "$DEV" 2>/dev/null || lsblk "$DEV"
+fi

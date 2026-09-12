@@ -51,7 +51,11 @@ fi
 [[ -f "$BASE_IMG" ]] || { echo "ERREUR : image V20 de base introuvable"; exit 1; }
 [[ -f "$REVS_JSON" ]] || { echo "ERREUR : $REVS_JSON manquant"; exit 1; }
 [[ -f "$DTB_DIR/v20.dtb" ]] || { echo "ERREUR : $DTB_DIR/v20.dtb manquant"; exit 1; }
-[[ -f "$DTB_DIR/v30-panel4.dtb" ]] || { echo "ERREUR : $DTB_DIR/v30-panel4.dtb manquant"; exit 1; }
+REVS_LIST="$(python3 -c 'import json,sys; print(",".join(r["id"] for r in json.load(open(sys.argv[1]))["revs"]))' "$REVS_JSON")"
+while IFS= read -r _rel; do
+	_f="$TELMI_R36/boot/${_rel}"
+	[[ -f "$_f" ]] || { echo "ERREUR : DTB catalogue manquant : $_f"; exit 1; }
+done < <(python3 -c 'import json,sys; [print(r["dtb"]) for r in json.load(open(sys.argv[1]))["revs"]]' "$REVS_JSON")
 
 STAGING_U="$TELMI_R36/staging/unified/opt/telmi/bin"
 STAGING_LEGACY="$TELMI_R36/staging/opt/telmi/bin"
@@ -121,10 +125,13 @@ if ! mdir -i "$BOOT_IMG" ::/dtb >/dev/null 2>&1; then
 	mmd -i "$BOOT_IMG" ::/dtb
 fi
 mcopy -o -i "$BOOT_IMG" "$REVS_JSON" ::/revs.json
-# V20 = DTB stock (107328 o) — le DTB Telmi modifie (108028 o) ne boot plus sur V20 depuis 0.5.0
-mcopy -o -i "$BOOT_IMG" "$DTB_DIR/v20.dtb" ::/dtb/v20.dtb
-mcopy -o -i "$BOOT_IMG" "$DTB_DIR/v30-panel4.dtb" ::/dtb/v30-panel4.dtb
-# Actif = V20 par defaut (stock)
+# Tous les DTB du catalogue (v20 stock, v30-panel4, y3506-v05, …)
+while IFS= read -r _rel; do
+	_src="$TELMI_R36/boot/${_rel}"
+	_base="$(basename "$_rel")"
+	mcopy -o -i "$BOOT_IMG" "$_src" "::/dtb/${_base}"
+done < <(python3 -c 'import json,sys; [print(r["dtb"]) for r in json.load(open(sys.argv[1]))["revs"]]' "$REVS_JSON")
+# Actif = V20 par defaut (stock 107328 o — DTB Telmi 108028 o cassait le boot V20)
 mcopy -o -i "$BOOT_IMG" "$DTB_DIR/v20.dtb" ::/rf3536k3ka.dtb
 
 echo -n "$DEFAULT_REV" > "$WORKDIR/TELMI-REV.txt"
@@ -199,7 +206,7 @@ echo "$(basename "$OUTPUT_IMG")" > "$OUTPUT_DIR/LATEST.txt"
 	echo "file=$(basename "$OUTPUT_IMG")"
 	echo "base=$(basename "$BASE_IMG")"
 	echo "default_rev=${DEFAULT_REV}"
-	echo "revs=v20,v30-panel4"
+	echo "revs=${REVS_LIST}"
 } > "$OUTPUT_DIR/telmi-r36-${VERSION}.manifest.txt"
 
 echo ""
@@ -211,5 +218,5 @@ if [[ "$TELMI_OS_ONLY" == "1" ]]; then
 else
 	echo " Flash : Flash-Telmi-SD.bat"
 fi
-echo " Puis  : Select-Telmi-REV.bat  (V20 ou V30 Panel4)"
+echo " Puis  : Select-Telmi-REV.bat  (catalogue revs.json)"
 echo "============================================================"

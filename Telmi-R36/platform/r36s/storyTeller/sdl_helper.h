@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -18,6 +19,7 @@
 #include "system/telmi_rev.h"
 #include "utils/str.h"
 
+#include "./mp3_helper.h"
 #include "./logs_helper.h"
 #include "./app_battery.h"
 #include "./app_lock.h"
@@ -25,10 +27,19 @@
 #include "./app_volume.h"
 #include "./app_brightness.h"
 
-#define SYSTEM_RESOURCES "/mnt/SDCARD/.tmp_update/res/"
+#ifdef SOYSAUCE_FB_PRESENT
+#include "soysauce_fb.h"
+#endif
 
+#ifdef SOYSAUCE_FB_PRESENT
+#define SYSTEM_RESOURCES "/opt/telmi/res/"
+#define FALLBACK_FONT_REGULAR "/opt/telmi/res/Exo2-Regular.ttf"
+#define FALLBACK_FONT_BOLD "/opt/telmi/res/Exo2-Bold.ttf"
+#else
+#define SYSTEM_RESOURCES "/mnt/SDCARD/.tmp_update/res/"
 #define FALLBACK_FONT_REGULAR "/mnt/SDCARD/.tmp_update/res/Exo2-Regular.ttf"
 #define FALLBACK_FONT_BOLD "/mnt/SDCARD/.tmp_update/res/Exo2-Bold.ttf"
+#endif
 
 #define SDL_ALIGN_LEFT 0
 #define SDL_ALIGN_RIGHT 1
@@ -42,6 +53,15 @@ static SDL_Renderer *renderer = NULL;
 static Mix_Music *music;
 static double musicDuration;
 static char currentMusicPath[STR_MAX * 2];
+
+#define AUDIO_DURATION_CACHE_SIZE 128
+
+typedef struct {
+	uint64_t hash;
+	double duration;
+} audioDurationCacheEntry;
+
+static audioDurationCacheEntry audioDurationCache[AUDIO_DURATION_CACHE_SIZE];
 /* Si Mix_LoadMUS echoue : evite autoplay qui enchaine toutes les pages */
 static Uint32 audioFakeEndMs = 0;
 /* Horloge logicielle : Mix_GetMusicPosition/SetMusicPosition + thread duree
@@ -56,6 +76,18 @@ static bool audioClockPaused = false;
 static double audioPendingSeekPos = -1.0;
 static Uint32 audioPendingSeekAtMs = 0;
 static const Uint32 AUDIO_SEEK_COALESCE_MS = 120;
+
+double telmi_audio_file_duration(const char *path);
+
+/* V20 Buildroot : Mix_MusicDuration peut exister ; Other fournit mixer_compat.c.
+ * Symbole faible pour rester linkable si le parseur Xing n'est pas dans le .c. */
+__attribute__((weak))
+double telmi_audio_file_duration(const char *path)
+{
+	(void)path;
+	return -1.0;
+}
+
 static TTF_Font *fontBold24;
 static TTF_Font *fontBold20;
 static TTF_Font *fontBold18;
@@ -115,13 +147,21 @@ SDL_Surface *video_loadAndCacheImage(char *imagePath) {
         image = IMG_Load(imagePath);
         if (image != NULL) {
             video_saveCacheSurface(imagePath, image);
+        } else {
+            fprintf(stderr, "[storyTeller] IMG_Load FAIL '%s': %s\n",
+                    imagePath, IMG_GetError());
+            fflush(stderr);
         }
     }
     return image;
 }
 
 void video_screenBlack(void) {
-    SDL_FillRect(appSurface, NULL, 0);
+    /* ARGB8888 : FillRect(..., 0) = transparent, l'image precedente reste. */
+    if (appSurface != NULL)
+        SDL_FillRect(appSurface, NULL, SDL_MapRGB(appSurface->format, 0, 0, 0));
+    if (screen != NULL)
+        SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 0));
 }
 
 void video_drawRectangle(int x, int y, int width, int height, Uint8 r, Uint8 g, Uint8 b) {
@@ -285,13 +325,21 @@ void video_showAppLock(void) {
 }
 
 void video_applyToVideo(void) {
-    if (renderer == NULL || texture == NULL || screen == NULL || appSurface == NULL)
+    if (screen == NULL || appSurface == NULL)
         return;
     video_showBattery();
+    SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 0));
     SDL_BlitSurface(appSurface, NULL, screen, NULL);
     video_showAppLock();
     video_showBar();
 
+#ifdef SOYSAUCE_FB_PRESENT
+    soysauce_fb_present(screen);
+    return;
+#endif
+
+    if (renderer == NULL || texture == NULL)
+        return;
     SDL_RenderClear(renderer);
     if (texture != NULL && screen != NULL) {
         SDL_Surface *rgb565 = SDL_ConvertSurfaceFormat(screen, SDL_PIXELFORMAT_RGB565, 0);
@@ -310,14 +358,16 @@ void video_displayImage(const char *dir, char *name) {
 
     SDL_Surface *image = video_loadAndCacheImage(imagePath);
 
-    SDL_FillRect(appSurface, NULL, 0);
     if (image != NULL) {
+        SDL_FillRect(appSurface, NULL, SDL_MapRGB(appSurface->format, 0, 0, 0));
         SDL_BlitSurface(
                 image,
                 NULL,
                 appSurface,
                 &(SDL_Rect) {(appSurface->w - image->w) / 2, (appSurface->h - image->h) / 2}
         );
+    } else if (appSurface != NULL) {
+        SDL_FillRect(appSurface, NULL, SDL_MapRGB(appSurface->format, 0x25, 0x10, 0x3A));
     }
     video_applyToVideo();
 }
@@ -454,7 +504,44 @@ double audio_getPosition(void) {
     return audioClockPosition + (SDL_GetTicks() - audioClockStartMs) / 1000.0;
 }
 
-void audio_play_path(char *soundPath, double position) {
+static uint64_t string_hash(const char *path) {
+    uint64_t h = 0xcbf29ce484222325ULL;
+    while (*path != '\0') {
+        h ^= (uint8_t)*path;
+        h *= 0x100000001b3ULL;
+        path++;
+    }
+    return h;
+}
+
+double audio_duration_cache_get(const char *path) {
+    uint64_t hash = string_hash(path);
+    double duration = -1.0;
+    int i = 0;
+    while (i < AUDIO_DURATION_CACHE_SIZE && audioDurationCache[i].hash != hash) {
+        ++i;
+    }
+    if (i < AUDIO_DURATION_CACHE_SIZE) {
+        audioDurationCacheEntry entry = audioDurationCache[i];
+        memmove(&audioDurationCache[1], &audioDurationCache[0], i * sizeof(audioDurationCache[0]));
+        audioDurationCache[0] = entry;
+        duration = entry.duration;
+    }
+    return duration;
+}
+
+void audio_duration_cache_set(const char *path, double duration) {
+    if (duration <= 0.0) {
+        return;
+    }
+    uint64_t hash = string_hash(path);
+    memmove(&audioDurationCache[1], &audioDurationCache[0],
+            (AUDIO_DURATION_CACHE_SIZE - 1) * sizeof(audioDurationCache[0]));
+    audioDurationCache[0].hash = hash;
+    audioDurationCache[0].duration = duration;
+}
+
+void audio_play_path(char *soundPath, double position, bool askDuration) {
     audio_free_music();
     music = Mix_LoadMUS(soundPath);
     if (music != NULL) {
@@ -462,9 +549,18 @@ void audio_play_path(char *soundPath, double position) {
         strncpy(currentMusicPath, soundPath, sizeof(currentMusicPath) - 1);
         currentMusicPath[sizeof(currentMusicPath) - 1] = '\0';
 
-        /* Duree sur le handle deja charge — JAMAIS de 2e Mix_LoadMUS en thread */
-        {
-            double d = Mix_MusicDuration(music);
+        musicDuration = 0.0;
+        if (askDuration) {
+            /* cache → CBR rapide → Xing/WAV → Mix_MusicDuration (2.6+ ou stub 2.0.4) */
+            double d = audio_duration_cache_get(soundPath);
+            if (d < 0.0) {
+                d = mp3_duration_estimate(soundPath);
+                if (d < 0.0)
+                    d = telmi_audio_file_duration(soundPath);
+                if (d <= 0.0)
+                    d = Mix_MusicDuration(music);
+                audio_duration_cache_set(soundPath, d);
+            }
             musicDuration = (d > 0.0) ? d : 0.0;
         }
 
@@ -485,10 +581,10 @@ void audio_play_path(char *soundPath, double position) {
     }
 }
 
-void audio_play(const char *dir, const char *name, double position) {
+void audio_play(const char *dir, const char *name, double position, bool askDuration) {
     char soundPath[STR_MAX * 2];
     sprintf(soundPath, "%s%s", dir, name);
-    audio_play_path(soundPath, position);
+    audio_play_path(soundPath, position, askDuration);
 }
 
 static void st_step(const char *msg) {
@@ -507,13 +603,60 @@ static void st_step(const char *msg) {
 
 void video_audio_init(void) {
     int mixFlags;
+    int sdlFlags;
     display_getResolution();
 
     st_step("storyTeller: avant SDL_Init");
-    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
-    st_step("storyTeller: SDL_Init OK");
+#ifdef SOYSAUCE_FB_PRESENT
+    /* Pas de VIDEO : kmsdrm après bootScreen fb0 n'allume plus le panneau. */
+    unsetenv("SDL_VIDEODRIVER");
+    sdlFlags = SDL_INIT_AUDIO | SDL_INIT_TIMER | SDL_INIT_EVENTS;
+#else
+    sdlFlags = SDL_INIT_VIDEO | SDL_INIT_AUDIO;
+#endif
+    if (SDL_Init(sdlFlags) != 0) {
+        fprintf(stderr, "[storyTeller] SDL_Init FAIL: %s\n", SDL_GetError());
+        fflush(stderr);
+        st_step("storyTeller: SDL_Init FAIL");
+    } else {
+        st_step("storyTeller: SDL_Init OK");
+    }
     IMG_Init(IMG_INIT_PNG);
     TTF_Init();
+
+#ifdef SOYSAUCE_FB_PRESENT
+    /* Surfaces + 1er frame AVANT l'audio (amixer est lent). */
+    screen = SDL_CreateRGBSurfaceWithFormat(0, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                                            32, SDL_PIXELFORMAT_ARGB8888);
+    appSurface = SDL_CreateRGBSurfaceWithFormat(0, DISPLAY_WIDTH, DISPLAY_HEIGHT,
+                                                32, SDL_PIXELFORMAT_ARGB8888);
+    fprintf(stderr, "[storyTeller] surfaces screen=%p app=%p (no video driver)\n",
+            (void *)screen, (void *)appSurface);
+    fflush(stderr);
+    if (screen != NULL) {
+        SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0x25, 0x10, 0x3A));
+        soysauce_fb_present(screen);
+        st_step("storyTeller: fb0 present OK");
+    } else {
+        soysauce_fb_fill(0x25, 0x10, 0x3A);
+        st_step("storyTeller: surfaces FAIL, solid fill");
+    }
+    fontBold24 = TTF_OpenFont(FALLBACK_FONT_BOLD, 24);
+    fontBold20 = TTF_OpenFont(FALLBACK_FONT_BOLD, 20);
+    fontBold18 = TTF_OpenFont(FALLBACK_FONT_BOLD, 18);
+    fontRegular20 = TTF_OpenFont(FALLBACK_FONT_REGULAR, 20);
+    fontRegular18 = TTF_OpenFont(FALLBACK_FONT_REGULAR, 18);
+    fontRegular16 = TTF_OpenFont(FALLBACK_FONT_REGULAR, 16);
+    if (fontBold24 == NULL)
+        fontBold24 = fontBold20;
+    if (fontRegular16 == NULL)
+        fontRegular16 = fontRegular18;
+    if (fontBold24 == NULL) {
+        fprintf(stderr, "[storyTeller] TTF_OpenFont FAIL %s: %s\n",
+                FALLBACK_FONT_BOLD, TTF_GetError());
+        fflush(stderr);
+    }
+#endif
 
     mixFlags = Mix_Init(MIX_INIT_MP3);
     if ((mixFlags & MIX_INIT_MP3) == 0) {
@@ -526,26 +669,32 @@ void video_audio_init(void) {
         fflush(stderr);
     }
 
-    /* Buffer plus grand : hw rk817 + swrast = underruns frequents a 4096 */
+    /* Default ALSA (comme le 1er boot qui marchait). plughw + asound.conf = silence. */
     {
         int tries;
-        for (tries = 0; tries < 10; tries++) {
-            if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 8192) == 0)
-                break;
-            fprintf(stderr, "Mix_OpenAudio try %d: %s\n", tries + 1, Mix_GetError());
-            fflush(stderr);
-            SDL_Delay(500);
+        int rates[2] = {44100, 48000};
+        int ri, opened = 0;
+        for (ri = 0; ri < 2 && !opened; ri++) {
+            for (tries = 0; tries < 6; tries++) {
+                if (Mix_OpenAudio(rates[ri], MIX_DEFAULT_FORMAT, 2, 2048) == 0) {
+                    opened = 1;
+                    fprintf(stderr, "Mix_OpenAudio OK %d Hz (try %d)\n",
+                            rates[ri], tries + 1);
+                    break;
+                }
+                fprintf(stderr, "Mix_OpenAudio %d Hz try %d: %s\n",
+                        rates[ri], tries + 1, Mix_GetError());
+                fflush(stderr);
+                SDL_Delay(300);
+            }
         }
-        if (tries >= 10)
+        if (!opened)
             fprintf(stderr, "Mix_OpenAudio: ECHEC definitif\n");
-        else
-            fprintf(stderr, "Mix_OpenAudio OK (try %d)\n", tries + 1);
         fflush(stderr);
     }
     Mix_AllocateChannels(16);
     Mix_Volume(-1, MIX_MAX_VOLUME);
     Mix_VolumeMusic(MIX_MAX_VOLUME);
-    /* Playback Path selon /boot/TELMI-REV.txt (image unique multi-REV). */
     {
         char cmd[128];
         snprintf(cmd, sizeof(cmd),
@@ -553,13 +702,16 @@ void video_audio_init(void) {
                  telmi_audio_path());
         system(cmd);
     }
-    system("amixer -c 0 sset Playback 100% unmute 2>/dev/null || true");
-    system("amixer -c 0 sset DAC 100% unmute 2>/dev/null || true");
+    system("amixer -c 0 sset Playback 80% unmute 2>/dev/null || true");
+    system("amixer -c 0 sset DAC unmute 2>/dev/null || true");
     system("amixer -c 0 sset Headphone unmute 2>/dev/null || true");
     system("amixer -c 0 sset Speaker unmute 2>/dev/null || true");
 
-    fprintf(stderr, "[storyTeller] video_audio_init...\n");
+    fprintf(stderr, "[storyTeller] video_audio_init driver=%s %dx%d\n",
+            SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "none",
+            DISPLAY_WIDTH, DISPLAY_HEIGHT);
     fflush(stderr);
+#ifndef SOYSAUCE_FB_PRESENT
     st_step("storyTeller: CreateWindow");
     window = SDL_CreateWindow("main", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
         DISPLAY_WIDTH, DISPLAY_HEIGHT, SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -584,6 +736,7 @@ void video_audio_init(void) {
         fontBold24 = fontBold20;
     if (fontRegular16 == NULL)
         fontRegular16 = fontRegular18;
+#endif
 }
 
 
@@ -597,11 +750,16 @@ void video_audio_quit(void) {
     }
     Mix_CloseAudio();
 
-    SDL_FreeSurface(appSurface);
-    SDL_FreeSurface(screen);
-    SDL_DestroyTexture(texture);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
+    if (appSurface != NULL)
+        SDL_FreeSurface(appSurface);
+    if (screen != NULL)
+        SDL_FreeSurface(screen);
+    if (texture != NULL)
+        SDL_DestroyTexture(texture);
+    if (renderer != NULL)
+        SDL_DestroyRenderer(renderer);
+    if (window != NULL)
+        SDL_DestroyWindow(window);
     SDL_Quit();
 }
 

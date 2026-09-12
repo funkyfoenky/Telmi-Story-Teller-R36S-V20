@@ -8,6 +8,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include "system/display.h"
 #include "utils/str.h"
 #include "utils/json.h"
@@ -20,8 +21,21 @@
 #include "./array_helper.h"
 #include "./time_helper.h"
 
+#ifndef SYSTEM_RESOURCES
 #define SYSTEM_RESOURCES "/mnt/SDCARD/.tmp_update/res/"
+#endif
 #define MUSICPLAYER_RESOURCES "/mnt/SDCARD/Music/"
+
+static int musicplayer_dirent_is_reg(const char *parent, const char *name)
+{
+    char path[STR_MAX * 2];
+    struct stat st;
+
+    snprintf(path, sizeof(path), "%s%s", parent, name);
+    if (stat(path, &st) != 0)
+        return 0;
+    return S_ISREG(st.st_mode);
+}
 
 #define MUSICPLAYER_MODE_PLAYER 0
 #define MUSICPLAYER_MODE_ALBUM 1
@@ -292,7 +306,7 @@ void musicplayer_load(void) {
 
     bool isPaused = Mix_PlayingMusic() == 1 && Mix_PausedMusic() == 1;
 
-    audio_play(MUSICPLAYER_RESOURCES, musicPlayerTracksList[musicPlayerTrackIndex], musicPlayerTrackPosition);
+    audio_play(MUSICPLAYER_RESOURCES, musicPlayerTracksList[musicPlayerTrackIndex], musicPlayerTrackPosition, true);
 
     if (isPaused) {
         Mix_PauseMusic();
@@ -543,8 +557,12 @@ void musicplayer_init(void) {
     DIR *d;
     struct dirent *dir;
     d = opendir(MUSICPLAYER_RESOURCES);
+    if (d == NULL) {
+        return musicplayer_load();
+    }
     while ((dir = readdir(d)) != NULL) {
-        if (dir->d_type == DT_REG && musicplayer_isMp3File(dir->d_name)) {
+        if (musicplayer_dirent_is_reg(MUSICPLAYER_RESOURCES, dir->d_name) &&
+            musicplayer_isMp3File(dir->d_name)) {
             musicPlayerTracksCount++;
         }
     }
@@ -559,7 +577,8 @@ void musicplayer_init(void) {
 
     rewinddir(d);
     while ((dir = readdir(d)) != NULL) {
-        if (dir->d_type == DT_REG && musicplayer_isMp3File(dir->d_name)) {
+        if (musicplayer_dirent_is_reg(MUSICPLAYER_RESOURCES, dir->d_name) &&
+            musicplayer_isMp3File(dir->d_name)) {
             musicPlayerTracksList[i] = malloc(STR_MAX);
             strcpy(musicPlayerTracksList[i], dir->d_name);
             i++;

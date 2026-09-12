@@ -339,6 +339,32 @@ void app_next(void) {
 	}
 }
 
+void app_randomStory(void) {
+	if (appOpened) {
+		switch (appIndex) {
+			case APP_STORIES:
+			case APP_NIGHTMODE:
+				stories_randomStory();
+				break;
+			default:
+				break;
+		}
+	}
+}
+
+void app_randomChoice(void) {
+	if (appOpened) {
+		switch (appIndex) {
+			case APP_STORIES:
+			case APP_NIGHTMODE:
+				stories_randomChoice();
+				break;
+			default:
+				break;
+		}
+	}
+}
+
 void app_up(void) {
 	if (appOpened) {
 		switch (appIndex) {

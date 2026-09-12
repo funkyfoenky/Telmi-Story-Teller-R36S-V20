@@ -22,13 +22,13 @@
 #define HW_BTN_SELECT_ALT BTN_TRIGGER_HAPPY1
 #define HW_BTN_START      BTN_START
 #define HW_BTN_START_ALT  BTN_TRIGGER_HAPPY3
+#define HW_BTN_START_ALT2 BTN_TRIGGER_HAPPY2 /* clones : Start = HAPPY2, pas FN */
 #define HW_BTN_MENU       BTN_TRIGGER_HAPPY4
-/* FN R36S — plusieurs codes selon DTB/clone */
 #define HW_BTN_FN         BTN_TRIGGER_HAPPY5
-#define HW_BTN_FN_ALT1    BTN_TRIGGER_HAPPY2
 #define HW_BTN_FN_ALT2    BTN_TRIGGER_HAPPY6
 #define HW_BTN_FN_ALT3    KEY_FN
 #define HW_BTN_FN_ALT4    KEY_MENU
+#define HW_BTN_FN_ALT5    BTN_MODE
 #define HW_BTN_POWER      KEY_POWER
 #define HW_BTN_VOLUME_UP  KEY_VOLUMEUP
 #define HW_BTN_VOLUME_DOWN KEY_VOLUMEDOWN
@@ -36,13 +36,15 @@
 static inline int HW_BTN_IS_MENU(unsigned int code)
 {
 	return code == HW_BTN_MENU || code == HW_BTN_FN ||
-	       code == HW_BTN_FN_ALT1 || code == HW_BTN_FN_ALT2 ||
-	       code == HW_BTN_FN_ALT3 || code == HW_BTN_FN_ALT4;
+	       code == HW_BTN_FN_ALT2 ||
+	       code == HW_BTN_FN_ALT3 || code == HW_BTN_FN_ALT4 ||
+	       code == HW_BTN_FN_ALT5;
 }
 
 static inline int HW_BTN_IS_START(unsigned int code)
 {
-	return code == HW_BTN_START || code == HW_BTN_START_ALT;
+	return code == HW_BTN_START || code == HW_BTN_START_ALT ||
+	       code == HW_BTN_START_ALT2;
 }
 
 static inline int HW_BTN_IS_SELECT(unsigned int code)

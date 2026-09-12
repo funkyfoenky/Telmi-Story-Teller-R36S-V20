@@ -1,0 +1,35 @@
+# Test Y3506 — y3506-v05f (v05e + alim panel RK817 vcc_lcd)
+
+Image : **0.6.8**
+Bootdiag : **DESACTIVE**
+
+## Fichiers sur BOOT
+
+1. `y3506-v05f.dtb` → **`rf3536k3ka.dtb`**
+2. `TELMI-REV.txt` = **y3506-v05f**
+3. `TELMI-AUDIO-PATH.txt` = **HP**
+4. `Enable-Panel-Diag.bat`
+
+## Ce que teste v05f (vs v05e)
+
+- **Alim panel** : RK817 `LDO_REG8` / `vcc_lcd` (stock) au lieu de `vcc18-lcd-n` (Panel4)
+- **Graphe DSI** : sans `dsi port@1` ni `panel ports` (comme stock)
+- Garde : panel4 DSI, route VOP endpoint@1, panel init stock
+
+## Noter
+
+| Question | Reponse |
+|----------|---------|
+| Boot **bouton ON** (froid) | batterie / backlight / image ? duree ? |
+| Boot **reset** (chaud) | backlight / image / logo Telmi ? duree ? |
+| Image visible ? | oui / non / garbage |
+
+## Logs a renvoyer
+
+- `telmi-panel-diag.log` + `telmi-panel-diag-VERDICT.txt`
+- `telmi-panic-prev.log`
+- `telmi-runtime.log`
+
+Chercher dans panel-diag : plus de `failed to find panel or bridge: -517`
+
+Merci !

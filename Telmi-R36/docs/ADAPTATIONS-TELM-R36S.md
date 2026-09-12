@@ -4,7 +4,7 @@ Document destiné à **DantSu**, auteur de [Telmi-story-teller](https://github.c
 
 Il explique **pourquoi** Telmi OS 1.10.1 (Miyoo Mini / Mini+) ne peut pas tourner tel quel sur une R36S, et **ce qui a dû changer** dans le port `Telmi-R36/`. Le métier (lecteur d’histoires STUdio, lecteur MP3, UI) est conservé. Ce qui change, c’est le socle matériel et surtout le **modèle de carte SD**.
 
-Base upstream inspectée : `DantSu/Telmi-story-teller` tag **1.10.1**, copie locale `Telmi-story-teller-1.10.1/`.
+Base upstream inspectée : `DantSu/Telmi-story-teller` tag **1.10.1**, copie locale `Telmi-story-teller-1.10.1/` (dans ce dépôt).
 
 Port actuel : image unique **Telmi-R36 0.6.0**, noyau vendor 5.10, un binaire pour clone V20 et V30 Panel 4, support **dual-SD** (contenu slot gauche).
 
@@ -201,7 +201,7 @@ Même contrat que l’upstream `Telmi-story-teller-1.10.1/static/build/autorun.i
 ```ini
 [autorun]
 icon  = .tmp_update/res/sdcard.ico
-label = TelmiOS-v1.10.1
+label = TelmiOS-v1.10.3
 ```
 
 C’est ce qui permet à Telmi Sync de **reconnaître** le volume TELMI comme une carte Telmi OS.
@@ -389,7 +389,7 @@ Le contrat « contenu » est le même que Telmi OS 1.10.1 :
 - histoires STUdio sous `Stories/<nom>/` (`nodes.json`, `title.png` / `title.mp3`, `images/`, `audios/`) ;
 - musique sous `Music/*.mp3` ;
 - `Saves/.parameters` (JSON volume, luminosité, timeouts, tuiles, night mode, timeline) ;
-- `autorun.inf` label `TelmiOS-v1.10.1` pour Telmi Sync ;
+- `autorun.inf` label `TelmiOS-v1.10.3` pour Telmi Sync ;
 - UI storyTeller / music player (carrousel, night mode, lock, autosleep) largement reprise des headers métier ;
 - résolution **640×480**.
 

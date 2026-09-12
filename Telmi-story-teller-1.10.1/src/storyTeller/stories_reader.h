@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
+#include <sys/stat.h>
 #include "system/display.h"
 #include "utils/str.h"
 #include "utils/json.h"
@@ -19,9 +20,36 @@
 #include "./time_helper.h"
 #include "./logs_helper.h"
 
+#ifndef SYSTEM_RESOURCES
 #define SYSTEM_RESOURCES "/mnt/SDCARD/.tmp_update/res/"
+#endif
 #define STORIES_RESOURCES "/mnt/SDCARD/Stories/"
 #define STORIES_SAVES "/mnt/SDCARD/Saves/Stories/"
+
+/* vfat/exfat sur noyau 4.4 : d_type est souvent DT_UNKNOWN. */
+static int stories_dirent_is_dir(const char *parent, const char *name)
+{
+    char path[STR_MAX * 2];
+    struct stat st;
+
+    if (name[0] == '.' && (name[1] == '\0' || (name[1] == '.' && name[2] == '\0')))
+        return 0;
+    snprintf(path, sizeof(path), "%s%s", parent, name);
+    if (stat(path, &st) != 0)
+        return 0;
+    return S_ISDIR(st.st_mode);
+}
+
+static int stories_dirent_is_reg(const char *parent, const char *name)
+{
+    char path[STR_MAX * 2];
+    struct stat st;
+
+    snprintf(path, sizeof(path), "%s%s", parent, name);
+    if (stat(path, &st) != 0)
+        return 0;
+    return S_ISREG(st.st_mode);
+}
 
 #define STORIES_DISPLAY_MODE_SINGLE 0
 #define STORIES_DISPLAY_MODE_TILES 1
@@ -324,7 +352,7 @@ bool stories_nightMode_addToPlaylist(void) {
 
 void stories_nightMode_play(void) {
     callback_stories_audio_hook = callback_stories_nightMode;
-    audio_play_path(storiesNightModePlaylist[storiesNightModeIndex], storyTime);
+    audio_play_path(storiesNightModePlaylist[storiesNightModeIndex], storyTime, true);
 }
 
 void stories_nightMode_resume(void) {
@@ -763,7 +791,7 @@ void stories_readStage(void) {
     sprintf(story_image_path, "%s%s/images/", STORIES_RESOURCES, storiesList[storyIndex]);
 
     if (isAudioDefined) {
-        audio_play(story_audio_path, cJSON_GetStringValue(audioJson), storyTime);
+        audio_play(story_audio_path, cJSON_GetStringValue(audioJson), storyTime, !isImageDefined);
         if (storyAutoplay) {
             callback_stories_audio_hook = callback_stories_autoplay;
             storyOkAction = cJSON_IsTrue(cJSON_GetObjectItem(controlJson, "ok"));
@@ -1041,7 +1069,7 @@ void stories_title(void) {
 
     char story_path[STR_MAX];
     sprintf(story_path, "%s%s/", STORIES_RESOURCES, storiesList[storyIndex]);
-    audio_play(story_path, "title.mp3", storyTime);
+    audio_play(story_path, "title.mp3", storyTime, false);
     callback_stories_audio_hook = NULL;
 
     storyScreenEnabled = true;
@@ -1167,6 +1195,43 @@ void stories_previous(void) {
             stories_readAction(-1);
         }
     }
+}
+
+void stories_randomStory(void) {
+    if (storiesCount == 0) {
+        return;
+    }
+    if (storyActionKey[0] != '\0' || storyAutoplay || storiesNightModePlaying) {
+        return;
+    }
+    if (storiesCount == 1) {
+        storyIndex = 0;
+    } else {
+        int newIndex;
+        do {
+            newIndex = rand() % storiesCount;
+        } while (newIndex == storyIndex);
+        storyIndex = newIndex;
+    }
+    stories_title();
+}
+
+void stories_randomChoice(void) {
+    if (storiesCount == 0) {
+        return;
+    }
+    if (storyActionKey[0] == '\0' || storyAutoplay || storiesNightModePlaying) {
+        return;
+    }
+    if (storyActionOptionsCount <= 1) {
+        return;
+    }
+    int newOption;
+    do {
+        newOption = rand() % storyActionOptionsCount;
+    } while (newOption == storyActionOptionIndex);
+    storyActionOptionIndex = newOption;
+    stories_readAction(0);
 }
 
 void stories_forceRefreshScreen(void) {
@@ -1355,9 +1420,15 @@ void stories_init(void) {
     DIR *d;
     struct dirent *dir;
     d = opendir(STORIES_RESOURCES);
+    if (d == NULL) {
+        fprintf(stderr, "[stories] opendir FAIL %s\n", STORIES_RESOURCES);
+        fflush(stderr);
+        storiesCount = 0;
+        return stories_title();
+    }
 
     while ((dir = readdir(d)) != NULL) {
-        if (dir->d_type == DT_DIR && strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0) {
+        if (stories_dirent_is_dir(STORIES_RESOURCES, dir->d_name)) {
             i++;
         }
     }
@@ -1368,13 +1439,15 @@ void stories_init(void) {
 
     if(storiesCount == 0) {
         closedir(d);
+        fprintf(stderr, "[stories] 0 dossier dans %s\n", STORIES_RESOURCES);
+        fflush(stderr);
         return stories_title();
     }
 
     rewinddir(d);
     i = 0;
     while ((dir = readdir(d)) != NULL) {
-        if (dir->d_type == DT_DIR && strcmp(dir->d_name, ".") != 0 && strcmp(dir->d_name, "..") != 0) {
+        if (stories_dirent_is_dir(STORIES_RESOURCES, dir->d_name)) {
             storiesList[i] = (char *) malloc(STR_DIRNAME);
             strcpy(storiesList[i], dir->d_name);
             i++;
@@ -1383,21 +1456,25 @@ void stories_init(void) {
     closedir(d);
 
     sort(storiesList, storiesCount);
+    fprintf(stderr, "[stories] %d histoire(s) dans %s\n", storiesCount, STORIES_RESOURCES);
+    fflush(stderr);
 
     for (int j = 0; j < storiesCount; ++j) {
         storiesHasSaveList[j] = false;
     }
 
     d = opendir(STORIES_SAVES);
-    while ((dir = readdir(d)) != NULL) {
-        if (dir->d_type == DT_REG) {
-            int sIndex = stories_getStoryIndex(dir->d_name);
-            if(sIndex != -1) {
-                storiesHasSaveList[sIndex] = true;
+    if (d != NULL) {
+        while ((dir = readdir(d)) != NULL) {
+            if (stories_dirent_is_reg(STORIES_SAVES, dir->d_name)) {
+                int sIndex = stories_getStoryIndex(dir->d_name);
+                if(sIndex != -1) {
+                    storiesHasSaveList[sIndex] = true;
+                }
             }
         }
+        closedir(d);
     }
-    closedir(d);
 
     if (stories_loadSession(APP_SAVEFILE)) {
         if (storiesNightModeEnabled) {

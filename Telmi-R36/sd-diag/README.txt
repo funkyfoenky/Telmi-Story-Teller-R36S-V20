@@ -8,8 +8,10 @@ sans lancer storyTeller. Rapport sur la partition BOOT (lisible Windows).
 ## Activer
 
 1. Image Telmi >= 0.6.5 flashee OS-only
-2. Select-Telmi-REV.bat -> v30-panel4
-3. Sur le PC : Enable-SD-Diag.bat -> lettre du volume BOOT
+2. Select-Telmi-REV -> v30-panel4
+3. Sur le PC :
+   - Windows : Enable-SD-Diag.bat -> lettre du volume BOOT
+   - Linux / macOS : bash enable-sd-diag.sh  (ex. /Volumes/BOOT)
 4. Carte OS slot droit + carte contenu slot gauche
 5. Boot : couleurs ecran = phases, puis extinction auto (~1 min)
 
@@ -22,7 +24,9 @@ Sur BOOT (apres extinction) :
 
 ## Desactiver
 
-Disable-SD-Diag.bat (supprime TELMI-SD-DIAG sur BOOT) -> boot Telmi normal.
+Windows : Disable-SD-Diag.bat
+Linux / macOS : bash disable-sd-diag.sh
+(supprime TELMI-SD-DIAG sur BOOT) -> boot Telmi normal.
 
 ## Couleurs (approx)
 

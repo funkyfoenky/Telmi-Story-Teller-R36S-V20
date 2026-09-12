@@ -15,6 +15,76 @@
       "dtb": "dtb/v30-panel4.dtb",
       "audio_path": "HP",
       "ignore_zed_keyboard": true
+    },
+    {
+      "id": "y3506-v05",
+      "label": "R36S Y3506 V05 (legacy — ecran KO distant)",
+      "dtb": "dtb/y3506-v05.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": false
+    },
+    {
+      "id": "y3506-v05b",
+      "label": "R36S Y3506 V05b (panel4-base + init DarkOS)",
+      "dtb": "dtb/y3506-v05b.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": false
+    },
+    {
+      "id": "y3506-v05c",
+      "label": "R36S Y3506 V05c (panel stock complet)",
+      "dtb": "dtb/y3506-v05c.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": false
+    },
+    {
+      "id": "y3506-v05d",
+      "label": "R36S Y3506 V05d (DSI stock + panel stock)",
+      "dtb": "dtb/y3506-v05d.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": false
+    },
+    {
+      "id": "y3506-v05e",
+      "label": "R36S Y3506 V05e (panel4-DSI + route VOP stock)",
+      "dtb": "dtb/y3506-v05e.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": false
+    },
+    {
+      "id": "y3506-v05f",
+      "label": "R36S Y3506 V05f (v05e + vcc_lcd RK817)",
+      "dtb": "dtb/y3506-v05f.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": false
+    },
+    {
+      "id": "y3506-bootdiag",
+      "label": "Y3506 BOOTDIAG (DSI off, log BOOT)",
+      "dtb": "dtb/y3506-bootdiag.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": false
+    },
+    {
+      "id": "y3506-t-panel4",
+      "label": "Y3506 test: Panel4 stock",
+      "dtb": "dtb/y3506-t-panel4.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": false
+    },
+    {
+      "id": "y3506-t-init",
+      "label": "Y3506 test: init DarkOS only",
+      "dtb": "dtb/y3506-t-init.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": false
+    },
+    {
+      "id": "y3506-t-timings",
+      "label": "Y3506 test: timings DarkOS only",
+      "dtb": "dtb/y3506-t-timings.dtb",
+      "audio_path": "HP",
+      "ignore_zed_keyboard": false
     }
   ]
 }

@@ -1,5 +1,38 @@
 # TelmiOS R36S — changelog images
 
+## 0.6.10 — 2026-09-09
+- **L2** : histoire au hasard (sélection, sans lancer)
+- **L1** : branche au hasard (dans une histoire, sans valider)
+- Combo menu+L2 (luminosité) inchangé
+
+## 0.6.9 — 2026-09-04
+- Port **Telmi OS 1.10.3** : estimation durée MP3 CBR (`mp3_helper`), cache LRU, `askDuration`
+- Fix fuite `json_load` (free du buffer `file_read`)
+- Anti-rebond boutons `time_wait` 50 ms
+- Label SD `TelmiOS-v1.10.3`
+
+## 0.6.8 — 2026-08-28
+- **Panel-diag** (MIPI actif) : flag `/boot/TELMI-PANEL-DIAG`
+  - `telmi-panel-diag.log` + `telmi-panel-diag-VERDICT.txt` sur BOOT
+  - Export auto `telmi-panic-prev.log` (ramoops boot précédent)
+  - Windows : `boot-diag/Enable-Panel-Diag.bat`
+- DTB **`y3506-v05d`** (DSI/PHY stock + panel stock)
+- DTB **`y3506-v05e`** (panel4-DSI + route VOP stock Y3506 + panel stock)
+- DTB **`y3506-v05f`** (v05e + alim panel RK817 vcc_lcd + graphe DSI stock)
+
+## 0.6.7 — 2026-08-28
+- **Y3506 boot-diag headless** : `telmi-boot-diag.sh` + flag `/boot/TELMI-BOOT-DIAG`
+  - Écrit `telmi-boot-diag-VERDICT.txt` + `.log` sur BOOT (lisible Windows)
+  - DTB `y3506-bootdiag.dtb` (DSI disabled, charge U-Boot off)
+  - Windows : `boot-diag/Prepare-Y3506-Bootdiag.bat`
+  - Patch SD 0.6.6 : `scripts/inject-boot-diag-into-sd.sh`
+
+## Outils hôte (Linux / macOS) — 2026-08-26
+- Flash SD, carte contenu, Select REV et SD-diag : équivalent des `.bat` Windows
+  - `Flash-Telmi-SD.sh`, `Flash-Telmi-SD-OS-Only.sh`, `Expand-Telmi-SD.sh`, `Prepare-Content-SD.sh`, `Select-Telmi-REV.sh`
+  - `scripts/telmi-sd-common.sh` (liste USB/SD, GPT `sgdisk -e`, FAT32, seed TELMI)
+  - macOS : `brew install gptfdisk` ; Linux : `gdisk` + `dosfstools`
+
 ## 0.6.6 — 2026-08-25
 - **Fix V30 dual-SD (diag 0.6.5)** : slot gauche ne partage plus `vccio_sd` avec l OS
   - `vqmmc` gauche = `vcc_sd` 3.3V fixe (evite course UHS 1.8V de mmc1)

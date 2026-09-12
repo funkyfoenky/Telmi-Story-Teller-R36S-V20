@@ -1,14 +1,14 @@
 # Telmi Story Teller — R36S
 
 Firmware **TelmiOS** pour console **R36S** (V20 clone et V30 Panel4).  
-Version actuelle : **0.6.6** (`Telmi-R36/VERSION`).
+Version actuelle : **0.6.10** (`Telmi-R36/VERSION`).
 
 | Chemin | Rôle |
 |--------|------|
 | `Telmi-R36/` | Portage, overlay, DTB, scripts build/flash, catalogue REV |
 | `Telmi-story-teller-1.10.1/` | Sources Miyoo d’origine (headers / utils pour le build) |
 
-L’image flashable `telmi-r36-0.6.6.img` n’est **pas** dans le dépôt (trop volumineuse) : publiez-la en **GitHub Release**.
+L’image flashable `telmi-r36-0.6.10.img` n’est **pas** dans le dépôt (trop volumineuse) : publiez-la en **GitHub Release**.
 
 ## Flux dual-SD (recommandé)
 

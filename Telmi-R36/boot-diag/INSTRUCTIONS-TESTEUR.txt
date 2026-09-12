@@ -1,0 +1,44 @@
+# Instructions testeur distant — Y3506 BOOTDIAG
+
+## Etape 0 — BOOTDIAG (faire en premier)
+
+### Methode facile (Windows)
+1. Carte OS dans le PC, volume **BOOT** visible
+2. Lance **`Prepare-Y3506-Bootdiag.bat`** (dossier boot-diag)
+3. Ejecte la SD, boot Y3506
+4. Attends **30–40 secondes** (ecran peut rester noir / icone batterie U-Boot)
+5. Remets la SD dans le PC
+
+### Que noter
+- S'eteint en ~15 s comme avant ? → probablement mort avant Linux
+- Reste allumee 30+ s puis s'eteint ? → Linux a probablement demarre (sans ecran)
+
+### Fichiers a renvoyer (si presents sur BOOT)
+- `telmi-boot-diag-VERDICT.txt`
+- `telmi-boot-diag.log`
+
+Si ces fichiers **n'existent pas** : image 0.6.6 sans inject — note seulement le temps avant extinction.
+
+---
+
+## Tests suivants (apres bootdiag)
+
+Ordre si bootdiag prouve que Linux demarre :
+
+| # | Fichier → rf3536k3ka.dtb | TELMI-REV.txt |
+|---|--------------------------|---------------|
+| 1 | y3506-v05c.dtb | y3506-v05c |
+| 2 | y3506-t-panel4.dtb | y3506-t-panel4 |
+| 3 | y3506-t-timings.dtb | y3506-t-timings |
+| 4 | y3506-t-init.dtb | y3506-t-init |
+
+Avant chaque test : TELMI-AUDIO-PATH.txt = HP
+
+## Grille de reponse
+
+| Test | Ecran | Extinction apres | VERDICT/log ? |
+|------|-------|------------------|---------------|
+| bootdiag | | | |
+| v05c | | | |
+
+Merci !

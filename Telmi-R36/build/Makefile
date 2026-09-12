@@ -11,7 +11,7 @@
 
 TELMI_R36_DIR := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST)))/..)
 # Surchargeable (Buildroot passe le chemin absolu hors du package local)
-TELMI_SRC ?= $(TELMI_R36_DIR)/../Telmi-story-teller-1.10.1
+TELMI_SRC ?= $(TELMI_R36_DIR)/Telmi-story-teller-1.10.1
 PLATFORM_DIR := $(TELMI_R36_DIR)/platform/r36s
 
 include $(PLATFORM_DIR)/config.mk

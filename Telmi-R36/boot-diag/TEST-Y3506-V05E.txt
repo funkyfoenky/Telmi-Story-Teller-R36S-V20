@@ -1,0 +1,40 @@
+# Test Y3506 — y3506-v05e (panel4-DSI + route VOP stock)
+
+Image : **0.6.8** (panel-diag recommande)
+Bootdiag : **DESACTIVE**
+
+## Fichiers sur BOOT
+
+1. Copier `y3506-v05e.dtb` → **`rf3536k3ka.dtb`**
+2. `TELMI-REV.txt` = **y3506-v05e** (une ligne)
+3. `TELMI-AUDIO-PATH.txt` = **HP**
+4. Supprimer `TELMI-BOOT-DIAG` si present
+5. `Enable-Panel-Diag.bat` (logs panel + panic-prev)
+
+## Boot
+
+- Demarrer, attendre **30-40 s**
+- Si reboot volontaire apres test : OK (panic-prev peut capturer le boot d'avant)
+
+## Noter
+
+| Question | Reponse |
+|----------|---------|
+| Debut ecran | batterie / backlight / image / logo Telmi / noir |
+| Extinction | apres combien de secondes ? |
+| Reste allume sans image ? | oui / non |
+
+## Ce que teste v05e
+
+- **DSI/PHY panel4** (probe driver Telmi — contrairement a v05d)
+- **Panel stock** complet (init + enable-gpios gpio1.18)
+- **Route VOP Y3506** : DSI sur `vop endpoint@1` (stock) au lieu de `@0` (Panel4 Telmi)
+- PWM backlight periode stock
+
+## Fichiers a renvoyer (partition BOOT)
+
+- `telmi-panel-diag.log` + `telmi-panel-diag-VERDICT.txt`
+- `telmi-panic-prev.log`
+- `telmi-runtime.log`
+
+Merci !

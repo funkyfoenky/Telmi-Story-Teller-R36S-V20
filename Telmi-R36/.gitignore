@@ -2,3 +2,11 @@
 /staging/
 /output/
 /assets/
+/dtb_backup/
+/img_stock/
+/.tools/
+*.img
+*.img.zip
+*.log
+audio-probe/fbcolor
+audio-probe/tone.wav

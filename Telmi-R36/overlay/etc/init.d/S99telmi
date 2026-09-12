@@ -11,6 +11,13 @@ case "$1" in
 		if [ -f /opt/telmi/telmiVersion/image-version.txt ]; then
 			echo "$(date '+%Y-%m-%d %H:%M:%S') image $(cat /opt/telmi/telmiVersion/image-version.txt) build $(cat /opt/telmi/telmiVersion/build-id.txt 2>/dev/null)" >>"$LOG_BOOT"
 		fi
+		# Boot-diag headless : AVANT splash (ecran peut etre mort / DSI off)
+		if [ -f /boot/TELMI-BOOT-DIAG ] && [ -x /opt/telmi/bin/telmi-boot-diag.sh ]; then
+			echo "$(date '+%Y-%m-%d %H:%M:%S') MODE BOOT-DIAG" >>"$LOG_BOOT"
+			/opt/telmi/bin/telmi-boot-diag.sh >>"$LOG_BOOT" 2>&1 || true
+			# le script poweroff lui-meme ; si retour : stop ici
+			exit 0
+		fi
 		# Splash le plus tot possible (S06 a deja tente le mount TELMI)
 		if [ -x /opt/telmi/bin/bootScreen ]; then
 			/opt/telmi/bin/bootScreen Boot >>"$LOG_BOOT" 2>&1 || true

@@ -41,7 +41,10 @@ chmod +x "$OVERLAY_DST/etc/init.d/S05boot" \
 	"$OVERLAY_DST/etc/init.d/S98telmi-fb" \
 	"$OVERLAY_DST/etc/init.d/S99telmi" \
 	"$OVERLAY_DST/opt/telmi/bin/telmi-runtime.sh" \
-	"$OVERLAY_DST/opt/telmi/bin/telmi-mount-content.sh"
+	"$OVERLAY_DST/opt/telmi/bin/telmi-mount-content.sh" \
+	"$OVERLAY_DST/opt/telmi/bin/telmi-boot-diag.sh" \
+	"$OVERLAY_DST/opt/telmi/bin/telmi-panel-diag.sh" \
+	"$OVERLAY_DST/opt/telmi/bin/telmi-export-pstore.sh"
 make -C "$BUILDROOT_DIR" telmi_r36_os_defconfig
 
 # Mesa peut rester en cache sans swrast apres changement de defconfig.
